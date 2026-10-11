@@ -122,7 +122,8 @@ def bundle(native: Path, wheel: Path, output: Path, uv: str) -> Path:
                 "-B",
                 "-c",
                 """
-import importlib.metadata, importlib.util, json, pathlib, sys
+import importlib.metadata, importlib.util, json, os, pathlib, sys
+os.environ.setdefault('ORT_DISABLE_TELEMETRY', '1')
 import numpy, onnxruntime
 import model_o_inference.preparation, arg_inference.plans
 for name in ('torch', 'triton', 'nnunetv2', 'monailabel', 'mlflow', 'kubernetes'):
