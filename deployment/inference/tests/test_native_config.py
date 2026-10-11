@@ -80,7 +80,7 @@ def test_pinned_native_targets(system: str, machine: str, supported: bool, tmp_p
     )
     assert (result.returncode == 0) == supported, result.stderr
     if supported:
-        from_source = system == "Linux" and machine in {"aarch64", "arm64"}
+        from_source = system == "Linux"
         assert f"SOURCE_BUILD={'ON' if from_source else 'OFF'}" in result.stdout
 
 
@@ -142,8 +142,9 @@ def test_native_build_stages(generator: str, tmp_path: Path, native_inputs: list
     shutil.which("cmake") is None or shutil.which("ninja") is None,
     reason="CMake and Ninja are native build tools",
 )
-def test_linux_arm64_builds_the_pinned_backend_before_host_and_provider(
-    tmp_path: Path, native_inputs: list[str]
+@pytest.mark.parametrize("machine", ["x86_64", "aarch64"])
+def test_linux_builds_the_pinned_backend_before_host_and_provider(
+    tmp_path: Path, native_inputs: list[str], machine: str
 ) -> None:
     native = Path(__file__).resolve().parents[1] / "native"
     subprocess.run(
@@ -156,7 +157,7 @@ def test_linux_arm64_builds_the_pinned_backend_before_host_and_provider(
             "-G",
             "Ninja",
             "-DCMAKE_SYSTEM_NAME=Linux",
-            "-DCMAKE_SYSTEM_PROCESSOR=aarch64",
+            f"-DCMAKE_SYSTEM_PROCESSOR={machine}",
             "-DCMAKE_CXX_COMPILER_WORKS=ON",
             "-DCMAKE_SKIP_RPATH=ON",
             f"-DPython3_EXECUTABLE={sys.executable}",

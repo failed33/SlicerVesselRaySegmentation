@@ -34,13 +34,9 @@ elseif(WIN32)
   set(DAWN_SYSTEM_LIBRARIES d3d12 dxgi dxguid user32 advapi32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(DAWN_ARCHITECTURES x86_64 arm64)
-  if(_dawn_architecture STREQUAL "arm64")
-    # The pinned release has no Linux ARM64 backend archive.
-    set(DAWN_BUILD_FROM_SOURCE ON)
-  else()
-    set(DAWN_ARCHIVE Dawn-${DAWN_COMMIT}-ubuntu-latest-Release.tar.gz)
-    set(DAWN_STATIC_LIBRARY lib64/libwebgpu_dawn.a)
-  endif()
+  # The pinned Linux x86-64 archive failed the procedure-table identity gate;
+  # the release has no ARM64 archive. Build both from the exact source commit.
+  set(DAWN_BUILD_FROM_SOURCE ON)
 else()
   message(FATAL_ERROR "No pinned Dawn archive for ${CMAKE_SYSTEM_NAME}")
 endif()

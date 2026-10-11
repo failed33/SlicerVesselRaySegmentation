@@ -46,8 +46,8 @@ these files together. ModelO's `--assets` option accepts the extracted
 bundle directory. Do not mix this provider with another ORT version.
 
 The build selects Metal on macOS, Vulkan on Linux and D3D12 on Windows. Linux
-ARM64 builds Dawn from source; the other configured targets use pinned upstream
-archives. Configured targets are not a claim of hardware acceptance. Public CI
+builds Dawn from source on both architectures. macOS and Windows use pinned
+upstream archives. Configured targets are not a claim of hardware acceptance. Public CI
 currently compiles Linux x86-64 and checks the bundle on Mesa software Vulkan.
 Physical GPU regression tests require `DAWN_ORT_NATIVE_ASSETS` and explicitly
 reject software and Null adapters.

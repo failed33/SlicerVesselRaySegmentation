@@ -46,3 +46,9 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   trailing-whitespace check flags those lines when a patch is first added as a
   file. `.gitattributes` disables that check only for `*.patch`; do not strip
   patch context to satisfy formatting checks.
+
+- The pinned upstream Linux x86-64 Dawn archive passed its download checksum but
+  failed the procedure-table identity check during the first clean CI build.
+  Linux now builds Dawn from the exact pinned source, as ARM64 already did. Keep
+  the runtime identity gate strict; a filename and checksum do not prove ABI
+  identity. Binding-generation errors report expected and actual identities.

@@ -13,8 +13,11 @@ def main() -> None:
     library_path, include_dir, output_path, dawn_commit, libclang_name = sys.argv[1:]
     library = ct.CDLL(library_path)
     library.dawn_ort_get_proc_version.restype = ct.POINTER(ct.c_uint8)
-    if bytes(library.dawn_ort_get_proc_version()[:20]).hex() != dawn_commit:
-        raise RuntimeError("Dawn procedure-table identity mismatch")
+    actual_commit = bytes(library.dawn_ort_get_proc_version()[:20]).hex()
+    if actual_commit != dawn_commit:
+        raise RuntimeError(
+            f"Dawn procedure-table identity mismatch: expected {dawn_commit}, got {actual_commit}"
+        )
     libclang = Path(clang.__file__).parent / "native" / libclang_name
     subprocess.run(
         [
