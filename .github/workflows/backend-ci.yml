@@ -1,0 +1,116 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["deployment/**", "ci/*backend*", "ci/*native*", ".github/workflows/backend-ci.yml"]
+  pull_request:
+    paths: ["deployment/**", "ci/*backend*", "ci/*native*", ".github/workflows/backend-ci.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORT_DISABLE_TELEMETRY: "1"
+  MLFLOW_DISABLE_TELEMETRY: "true"
+  MLFLOW_DISABLE_AGENT_HINT: "1"
+
+jobs:
+  packages:
+    name: Python wheels and MONAI containers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/build/backend/installed
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned build tools
+        run: python -m pip install uv==0.12.23
+      - name: Build wheels from source distributions
+        run: |
+          uv build deployment/inference --out-dir build/backend/dist
+          uv build deployment/monai --out-dir build/backend/dist
+      - name: Install locked dependencies and replace source packages with built wheels
+        run: |
+          uv sync --project deployment/monai --frozen --no-install-project --no-editable --group dev --extra arg --extra model-o --extra kubernetes
+          uv pip install --python build/backend/installed/bin/python --no-deps --reinstall build/backend/dist/*.whl
+      - name: Check backend formatting and imports
+        run: |
+          build/backend/installed/bin/ruff check ci/*backend*.py ci/*native*.py deployment/inference deployment/monai
+          build/backend/installed/bin/ruff format --check ci/*backend*.py ci/*native*.py deployment/inference deployment/monai
+      - name: Test standalone backend behavior
+        working-directory: deployment/monai
+        run: ../../build/backend/installed/bin/python -m pytest -q tests --junitxml=../../build/backend/monai-tests.xml
+      - name: Accept installed wheels outside the checkout
+        run: build/backend/installed/bin/python -I ci/test_backend_wheels.py --output build/backend/wheels.json
+      - name: Build CPU ARG and MONAI Label containers
+        run: |
+          docker build -f deployment/monai/Dockerfile.workers --target arg -t vessel-arg:ci .
+          docker build -f deployment/monai/Dockerfile.workers --target label_arg -t vessel-label:ci .
+      - name: Accept built containers with the synthetic ONNX model
+        run: |
+          build/backend/installed/bin/python -I ci/test_backend_wheels.py --server-image vessel-label:ci --worker-image vessel-arg:ci --output build/backend/containers/report.json
+          docker image inspect vessel-arg:ci vessel-label:ci > build/backend/containers/images.json
+      - name: Keep distributions and acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: backend-packages
+          retention-days: 7
+          path: |
+            build/backend/dist/
+            build/backend/*.json
+            build/backend/*.xml
+            build/backend/*.log
+            build/backend/containers/
+
+  native:
+    name: Native Dawn and ORT / Linux x86-64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install native build and software Vulkan dependencies
+        run: |
+          python -m pip install uv==0.12.23
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libvulkan1 mesa-vulkan-drivers libegl1 libxext6
+          uv sync --project deployment/inference --frozen --group native --group test
+      - name: Test runtime boundaries and native build graph
+        run: deployment/inference/.venv/bin/python -m pytest -q deployment/inference/tests --junitxml=build/backend/inference-tests.xml
+      - name: Compile the pinned host bridge and patched provider
+        run: |
+          cmake -S deployment/inference/native -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DPython3_EXECUTABLE="$PWD/deployment/inference/.venv/bin/python" -DCMAKE_INSTALL_PREFIX="$PWD/build/native/assets"
+          cmake --build build/native --parallel 2
+          cmake --install build/native
+      - name: Bundle and test relocated native libraries
+        run: |
+          python ci/bundle_native.py --build build/native --output build/backend/native
+          deployment/inference/.venv/bin/python ci/test_native_bundle.py build/backend/native/*.zip --output build/backend/native/report.json
+      - name: Keep the native bundle and test evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: native-linux-x86-64
+          retention-days: 7
+          path: |
+            build/backend/native/*.zip
+            build/backend/native/*.json
+            build/backend/inference-tests.xml

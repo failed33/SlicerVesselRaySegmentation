@@ -1,0 +1,3 @@
+# Unified patch context lines contain a single leading space, including blanks.
+# Preserve upstream patches byte-for-byte instead of trimming their context.
+*.patch -whitespace

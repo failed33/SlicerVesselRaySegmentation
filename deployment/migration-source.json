@@ -1,0 +1,591 @@
+{
+  "source_commit": "bb61b150431d3a8a4297dd25185e628a556fbebc",
+  "selection": "Tracked production backend files and standalone tests from the working tree. Research, model weights, private runbooks, cluster manifests and desktop-client tests remain internal.",
+  "files": [
+    {
+      "path": "deployment/inference/LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/CMakeLists.txt",
+      "sha256": "7b11f384dd24ceeedf403ff05fe0b99f0b250ed4d27e7e63f0a8c06cb81c684c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/apply_patches.cmake",
+      "sha256": "8c4b9a3256a211f56dbe00caabafd53d3e660705c371a6f72652b66c99cdf7b7",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/dawn_proc_bridge.cc",
+      "sha256": "99f8561e423bc0a0f404062e269b7fc71381404c1530f2c5629f5f2341cd04dc",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/generate_bindings.py",
+      "sha256": "78a0ddcb46f69e9d66dc1fa4af3360f9fd05da8c4ec85084932f9538ce854fee",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/migraphx/build.sh",
+      "sha256": "bd2fea7d2dc9f13922989a38a871e08825605e25282599492f1baa57df2da3f6",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/migraphx/rocm711.patch",
+      "sha256": "786f78b1df11edd1bcd775aa7083cdbf2da1f06e88d7c3a80ebd720a25392bf1",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/migraphx/rocm711_operators.cc",
+      "sha256": "4f1deaaa0d8067357488f4d97f16cd0dfc8631a0e5afa684bd845fb30cd3d45d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/ort.cmake",
+      "sha256": "78ceacc488b519331f9d31aee061e9ab0d2a30c399d48f62707155c3c0f47e35",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/patches/ONNXRUNTIME_LICENSE.txt",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/patches/pr32688-runtime.patch",
+      "sha256": "b44942293a09c70b4bd4e7276fd7f501649fa71ce56a4230b7ab7df7a5e826b3",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/patches/wgsl-optional-variable-prerequisite.patch",
+      "sha256": "c10fd293b44d3ca780802f792e42c708fc235a374a6cb9f1dec07fcd40a60479",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/native/pins.cmake",
+      "sha256": "0565a4ad344dc12e24866122230454602618824a8b55f53e87e89fe740d892d5",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/pyproject.toml",
+      "sha256": "70463e7efc3782aabf385e246da7385533c60dc8d94a37e43e25d9aa712579d2",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/arg_inference/__init__.py",
+      "sha256": "d47d9e8b2beb5afe48ca3edd83ef35bada4017ff1bcedea68353dc2cb7c9d48d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/arg_inference/providers.py",
+      "sha256": "7a7531f872eed959c0386e67ed131923924291431383f94aa324fc8efce484f3",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/arg_inference/runtime.py",
+      "sha256": "346819eece533abbbfcfbdac5f1c1bc2539512d193dcd1774a220d1773f06569",
+      "uncommitted": true
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/__init__.py",
+      "sha256": "06be41c47a27913f9a67bc9390a26677f5c8417ffc10fcda78f9364ff0b9b566",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/_bindings.py",
+      "sha256": "94cfe3c096857d36532376d88692999e190acc357e9ad918c08d5a80ddbb8b5b",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/_ort.py",
+      "sha256": "ff82eb19ea45ad88b08a8cedc57f959cbd7280a77c629ace6ee7865ec08ec24a",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/host.py",
+      "sha256": "3aa767b2593687ac32aa4896cd76e62ff376cdb37a9361247529401231088df2",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/platforms.py",
+      "sha256": "ed09b52ed6e1df77fb439101bb9f0f2d4ee774295a9d867be68fd079c7fd62e0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/session.py",
+      "sha256": "95a8650dc42cf7d90c6722f99f3b89c86d40928667795eb9620db1df97e39ab1",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/dawn_ort/tensors.py",
+      "sha256": "f70240b3d22cbca8efda71529e3c5644d84ba84ac30d4cfe96c039ecce2ea478",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/label_inference/__init__.py",
+      "sha256": "0d511451cd600ff0f09b6438815fd928ca0fd7f1b27254a21a203f9e32af7777",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/label_inference/files.py",
+      "sha256": "c27bf5adc115f9b130bb28cd0eb21f0c0ecf03cfbcc8b9d58665fba285e0aece",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/label_inference/requests.py",
+      "sha256": "463c3edfb91155b808c07fadeaa3f1d75e06fb02e1dddd165dcc026d7d596699",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/label_inference/routes.py",
+      "sha256": "4e65b6c71c7c4682d22e8c971d2e03a4105a6d962091e0757da1ea7ca9536a11",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/label_inference/sessions.py",
+      "sha256": "1ff5fc6a9c25915f7027e0ba9c291ecaa34f4b66e8ae7a33fab08efda6220681",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_artifacts/__init__.py",
+      "sha256": "f4ef69d49f250bdbd87db2e88dfdc68194a254cd0b4f4d55aa23cce34990a1b8",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/__init__.py",
+      "sha256": "a597db4a40c94f4bda70b19a84f35d84c0d6bc698ae1da850ab2f40175b027ae",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/constants.py",
+      "sha256": "972d9633d4273b1d15b52d2d3606e933c8f726d0bc472182c80e588f8a0c651f",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/dawn_inputs.py",
+      "sha256": "d7a15cb6daa9db733736f37113e8f3709026eb07941c0c07cd6e524bf192e8de",
+      "uncommitted": true
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/geometry.py",
+      "sha256": "2723a75bf27321c82dbd61ad2c11569d7079899abdaab96a913389defd06ca86",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/graph.py",
+      "sha256": "0db6cea9ce2230c3fb5fa73e41431a27cc8f7a46e1ea11cfbbf49383e7c7ff26",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/lattice.py",
+      "sha256": "4de6de7bba2800da3dde0e3f25fa51506efe6d1182d578025622696949d9afc5",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/planning.py",
+      "sha256": "b2b59877de5c6fcd610b5e2b5848ecc1c00397fb1ebcf34f445cd4d600726cec",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/preparation.py",
+      "sha256": "fbba00cbc165511625ea16eaf5a449db31c332d343136b8824762f4336861929",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/preview.py",
+      "sha256": "18c35f821ab2c044b1813b3feac0d410543d5cfacfe30daa7aa01431770bf839",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/runtime.py",
+      "sha256": "0b7a203876731a871cb73c7cbfba87f366c81942b2d8d76d69bcb408475c04b9",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/sampling.py",
+      "sha256": "6ff66aa27b9e2d77ae8a9f2d7773c6c2c40bb50c17b4b84d3e71b6c631fd5d1c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/schemas.py",
+      "sha256": "dbebc8a76eba9ffd7816ae994e5525bcbb2799c15bc16349aedfcdbbc3d0c1ad",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/shader_contract.py",
+      "sha256": "99d1f1cb21fc48b3495fdfe5ecd3b6de17b16ae96236f12ab4e57dab75689212",
+      "uncommitted": true
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/shaders.py",
+      "sha256": "46973b802e53867a77be50cbf570d3347297f05059b1e3302a462ca418accf59",
+      "uncommitted": true
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/stitching.py",
+      "sha256": "f726bff92dc3e92cee0eeea15d6c347e5433d7b6882a1d62aac6513b33d01e03",
+      "uncommitted": true
+    },
+    {
+      "path": "deployment/inference/src/model_o_inference/webgpu/model_o_patch_inputs.wgsl",
+      "sha256": "c1dabab55bf7042f0870d65b5354c4972be04bffc40f7406f2bd1307476404ea",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/conftest.py",
+      "sha256": "0540112b1a5e8edefa507f5ec499d7846357fde2008e0d1cfbf4c58761a8cf2b",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_bindings.py",
+      "sha256": "2616bcbea52fa6194c42d21b1dcf74bc9f7cab482d7489ea65b8826155806a89",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_host.py",
+      "sha256": "199251f20a6b24d5b672babc761ec913677a6bd15c3d28c6030cf728efb44b8e",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_native_config.py",
+      "sha256": "e3015d759a0990cf3b4b944097377a0d4962488f6db53045396be7f9de7e4049",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_native_conv_transpose.py",
+      "sha256": "3a48d2d0c99be6ca6651fe6399d9aba389ff84d7957444c0a3448656371e4d75",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_package_boundary.py",
+      "sha256": "85a5fa0dad87646dcff6632e3293b2efdf6d19e450f7a1ba7a39e80027b690f0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_platforms.py",
+      "sha256": "24852b6d390e4cb6793075105fbce92d139460e7416def396edcddfa47408c31",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_session.py",
+      "sha256": "b212ccbc5ad9d6246c9b19695a098db4a95d2906f7ed9cbc8422b900aba30c57",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/tests/test_tensors.py",
+      "sha256": "9397703d66477172a5ca9277f323e98572a681e77f5d8bf250238fe9866e2a65",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/inference/uv.lock",
+      "sha256": "dc1f8a7e78357bf285ee1647251a71244d8275c02d1ccf155d0e4f7123e14158",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/Dockerfile.workers",
+      "sha256": "77b0eb0a0c9f5a6b402c51c2f966d6d43f5c95b1bdce38dd26c7efcd12d006b4",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/Dockerfile.workers.dockerignore",
+      "sha256": "3752f7a4ba3ccaf4db3bcb79c11f9e288b96041879eccefeb9c17c2e6bd7fb65",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/asgi.py",
+      "sha256": "9401daa4bf604fe237d66c6dcb081be90a1f394f6d0f49acd7f2d56b20c54cac",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/label_app/main.py",
+      "sha256": "edd6e0d17827071482b0979c59f17c8136f326aacf852a29bdd5ec5a2a8ad124",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/__init__.py",
+      "sha256": "17da3a09e243f899fcf43658ed13fd5d230801d6aacc25545ac0c16c9d801454",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/__init__.py",
+      "sha256": "f6e09c583adf7d9ee92671bc62d032d6ea33971f94b839e4b23d69378c931745",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/bindings.py",
+      "sha256": "df6da6e829e5d5d6b75ecc289ca8b7e8cabda7df901a67ac268a754b94e7785e",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/execution.py",
+      "sha256": "5193385627dd058ca76b819c61910a295e7d9b1e13b4ff31351ea9a2a536b665",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/executor_config.py",
+      "sha256": "759dde69db9261dfb348c8ae3993cb78d36ecb5e7c1d71b7a07da03d58c97f32",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/kubernetes.py",
+      "sha256": "66faeeea4ffeedbcdc8dc5650ddaffc99ef1e119a1f79ab17517c5967e8c129c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/kubernetes_files.py",
+      "sha256": "a103636dfb33b56549e03cc447928a55846d9ee09fe2d415533245cae17cf346",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/adapters/mlflow.py",
+      "sha256": "d19e550b7503562b37b2fb7222d74c30a9c134578627459b28fa14916081d8d9",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/app.py",
+      "sha256": "b4db91cbd723a32ba1048f558216e388bf27af61eb15a4e684cb715d7203382a",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/application.py",
+      "sha256": "1b04985b60cafa677dd2fae6581ecf49c2fc861dbab2eae1041a9d1cb4a84a81",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/config.py",
+      "sha256": "e508a8884ed23cc36275c540355a9e39fbb9de7d867e71cf05a5c979e6800a6f",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/contracts.py",
+      "sha256": "30ce6e38e2f66e293f499123f2b6465058a3da21ecd488b2463a7c0c651f4ea8",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/models/__init__.py",
+      "sha256": "dca3bbcfa1070cbf0300c0db83941913fd385c0ac2684431782db799694d5a7d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/models/arg.py",
+      "sha256": "e3c45c7d06274e291c72512746a7e5bb58b4addcf10f29f4981570c669554cc0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/models/model_o.py",
+      "sha256": "90402959e60428f5db21769a4f054ab0d5907ebfc29d64b8371242b8d8d91360",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/native_api.py",
+      "sha256": "8c992eac4f36e079d9e83736ad7bc8197ce6432e1529c1174dfe33ed981df813",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/registry.py",
+      "sha256": "e0e04670482e48b09d890db3423b1ef5ce4ef97b8d8ad28fe53fdf6fa861ebf5",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/schemas/__init__.py",
+      "sha256": "d15e6b2b6e90fae3ef9b01883e4c9397d762be38baf3bb768124bbf2baa1f31c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/schemas/base.py",
+      "sha256": "353184b8a0ad1200d0d7b799bb159e106d20e200c744a49b85d55986654e861c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/schemas/execution.py",
+      "sha256": "f3cd9644eb577867f5629508a5ac9b003ee06e1e849333e668644006c3f0feb0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/streaming.py",
+      "sha256": "15ceaa9e312dab76406fec6c40dbea52c5e5639ad45d31cd024d4aa4202bb380",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/tasks.py",
+      "sha256": "c295caa1210f8cb24f0943fb039c3ce7272cb7574128973ec0139412b44c502e",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/monai_service/worker_io.py",
+      "sha256": "9d875e73996e9b0d106467891d325faa7e3e369f7bb30c95abf7c773c608e8da",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/pyproject.toml",
+      "sha256": "60017d52b6a29f0d60cd6d4f6125266e3370c1351b13f1eb851e13342cd9b47a",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/Dockerfile.smoke",
+      "sha256": "1b7ba3b57efa892277f0b9ebf163448ae65d649f31b6144cbe91bb3f88f70c3d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/__init__.py",
+      "sha256": "8922301b24e162ba906879491dfef94152b722941f6a43b498e4ac6f48453a75",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/asgi.py",
+      "sha256": "03b2ee0edbe778fef93fcfa0f47b483e6c6fe6bcce2f61bc5901c5dd5e7f798b",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/conftest.py",
+      "sha256": "30196cb9e38cf4484925265b7cb6cfc2e9ad28c5ea81300dec67034b3ee67a5d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/fixture_factory.py",
+      "sha256": "0e9aedfd8463ba8f78b8557591dedf8b4a3242f67c64402e1352181d2816ff73",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/fixtures.py",
+      "sha256": "bf9c894a65e8620d2b370facd3418f660b10a97ca7b34790057f8a6f067b5ec9",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/smoke_worker.py",
+      "sha256": "61004a4d42f85d7adf714987dce90cb65173748e118c7f3c086e84b59d5850b7",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/stream_fixture.py",
+      "sha256": "f3f397ba4ea0f7f9ab5d9b96ac5a9884d3dd72bc86d390866043cd4958221300",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/stream_worker.py",
+      "sha256": "f7d7977a0019f96bb8a017e1df7ca7bb4b0f7f3acd0ada4f16a62ac446e040ca",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_api.py",
+      "sha256": "765a38f5b3c2579482757171def52a4d4496a1521d48477d3a22a50c81686aba",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_application.py",
+      "sha256": "ed5519cc81a32a43a7cf997bb2b5013593ca636bf8ab0419694437e896a7cba4",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_arg_providers.py",
+      "sha256": "e8f1a82c1e1e1eb9e228e66e5fdc9f047f055eb22ddaddd613eb190343a73e04",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_arg_worker.py",
+      "sha256": "049b6814df28af4ac927c69364f90d9b70d75229b74d31df0adebd32b8d300f1",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_composition.py",
+      "sha256": "3c0bfe17c78a4312510a8b5cab66b6759839c01c9b964a9b83f0317908073c88",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_direct_inference.py",
+      "sha256": "7a3d70fed6d8009b96e68d71f2cf52eac3af20b880f34bf8f0fde901c1b5fca0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_execution.py",
+      "sha256": "326a0709928bb1473cdfc9be02266bbc95d1acc3530652514b2dd22540c0db1d",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_executor_config.py",
+      "sha256": "38e55994440b1131db485df4ea42ebcc4b09749e7f295391d2b0fefe8d900ec9",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_extensibility.py",
+      "sha256": "b8b3f68fa683019ec64b5cf38586af99ca2acdcae6df84a554f23d91446c52fa",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_import_boundaries.py",
+      "sha256": "82ab99896a8a0df0ded2bbc8a24dcd4ca3ddee9611d1c966b08d3e05c9a1ff53",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_kubernetes_executor.py",
+      "sha256": "f7a9f22952554b28bd65c76fd21fc251588bc1c50899da3c8a25f0d4d15f6eb0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_model_o_inputs.py",
+      "sha256": "b8e1c770a1f9fbef357f8277ea9b33927150018f210a52d1c974228d49fccdfa",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_model_o_queue.py",
+      "sha256": "f4166c29c10b5ff519b07a1298c709001d1399ce60d6b03bf128b46dc3005bea",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_model_o_worker.py",
+      "sha256": "d2d9d849ba34451538415fde0a161b34f0b4b76803728cfd8fb0119290044cc0",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_models.py",
+      "sha256": "2b8e464c32eeb8b28d8ca10b556da64a5a0d55539c63e0bb1e7f505fba39c041",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_registry.py",
+      "sha256": "52d2545c2605c89ee99de1573ea392a60873a2c8ef0ee47fe25568fb2a7028e6",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_service_process.py",
+      "sha256": "bb9fc3cc6735b06e96bff5c836907692caaca47f0345dacded7f640377e71215",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_sessions.py",
+      "sha256": "b630a730497387cef63d7f758c9a0404736eab62d566cffd8f9eb1051b2c2234",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_smoke_worker.py",
+      "sha256": "d1b68628a151b74e17dd35bcda04b05dc52377944bf1db2a897d07cfcba29d82",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_streaming.py",
+      "sha256": "f8c640b8dcd4f7207b76c2b00447974bf785e0a766ccca0928ec721d4d4b8b7a",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_streaming_execution.py",
+      "sha256": "b65bd5ba00d24f0997e78c6f027dec40577df5d5eedbd1d0c14393b0036ce16c",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/tests/test_worker_previews.py",
+      "sha256": "dfbd4c9591aa729301ab972c42ea3c70ed96b0f92a8dcdcdad51db08cda38091",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/uv.lock",
+      "sha256": "f7c0264fdcd796f2d4dafebdbfc630e8e67a231b2a8f868881024c424d83d9ce",
+      "uncommitted": false
+    },
+    {
+      "path": "deployment/monai/vessel_deployment.py",
+      "sha256": "270b1a25dc14f6204d573f22be04d423a0ec9c38ab27354617b5469ca5a452ec",
+      "uncommitted": false
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+[project]
+name = "monai-label-service"
+version = "0.1.0"
+description = "MONAI Label service for ARG and ModelO vessel inference"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE.txt"]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vessel-inference[registry,label]",
+    "monailabel==0.8.5",
+    "monai==1.6.1",
+    "numpy==1.26.4",
+    "simpleitk==2.5.6",
+    # pydicom-seg still imports APIs removed in pydicom 3.
+    "pydicom==2.4.4",
+    "mlflow-skinny==3.16.1",
+    "filelock==4.0.7",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "fastapi==0.142.2",
+    "uvicorn==0.54.0",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+arg = ["vessel-inference[arg]"]
+model-o = ["vessel-inference[model-o]"]
+kubernetes = ["kubernetes==36.0.3"]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["monai_service", "label_app"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"vessel_deployment.py" = "vessel_deployment.py"
+"asgi.py" = "asgi.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["/monai_service", "/label_app", "/asgi.py", "/vessel_deployment.py", "/pyproject.toml", "/README.md", "/LICENSE.txt"]
+
+[tool.uv]
+required-version = ">=0.12.23"
+constraint-dependencies = ["scipy==1.13.1", "scikit-image==0.26.0"]
+conflicts = [
+    [{ group = "arg-cuda" }, { extra = "arg" }],
+    [{ group = "arg-cuda" }, { extra = "model-o" }],
+    [{ group = "arg-cuda" }, { group = "arg" }],
+    [{ group = "arg-cuda" }, { group = "arg-webgpu" }],
+    [{ group = "arg-cuda" }, { group = "model-o" }],
+    [{ group = "arg-cuda" }, { group = "dev" }],
+]
+
+# Label needs Torch. Our ONNX inference does not use it; select CPU Torch on
+# Linux and choose the inference backend through a separate dependency group.
+[tool.uv.sources]
+vessel-inference = { path = "../inference" }
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../inference/src"]
+addopts = "--import-mode=importlib"
+
+[tool.pyrefly]
+python-version = "3.12"
+python-interpreter-path = ".venv-typecheck/bin/python"
+search-path = [".", "../inference/src"]
+project-includes = ["monai_service/**/*.py", "label_app/**/*.py", "asgi.py", "vessel_deployment.py", "examples/**/*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E401", "F401", "F541", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["monai_service", "label_app", "vessel_deployment"]
+
+[dependency-groups]
+worker-common = [
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+]
+arg = [
+    {include-group = "worker-common"},
+    "vessel-inference[arg]",
+]
+arg-cuda = [
+    {include-group = "worker-common"},
+    "vessel-inference[arg-support]",
+    "onnxruntime-gpu[cuda,cudnn]==1.30.0",
+    # The newer Linux cuBLAS release does not publish Windows wheels.
+    "nvidia-cublas==13.8.0.4; sys_platform == 'win32'",
+]
+arg-webgpu = [
+    {include-group = "arg"},
+    "onnxruntime-ep-webgpu==0.4.0",
+]
+model-o = [
+    {include-group = "worker-common"},
+    "vessel-inference[model-o]",
+]
+dev = [
+    {include-group = "arg"},
+    {include-group = "model-o"},
+    "pytest>=9.1.1",
+    "ruff>=0.15.6",
+    "onnx==1.23.1",
+    "kubernetes==36.0.3",
+]

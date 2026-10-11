@@ -1,8 +1,8 @@
 # SlicerVesselRaySegmentation
 
-This repository contains publication infrastructure and a small scripted module
-demo for a planned 3D Slicer extension. It does not yet contain the vessel
-segmentation implementation.
+This repository contains the shared ARG/ModelO inference backend, MONAI Label
+service, publication infrastructure and a scripted module demo for a planned
+3D Slicer extension. The vessel workflow UI is still being migrated.
 
 The planned workflow is ARG inference, disconnected-component removal, centerline
 generation and manual editing, then ModelO inference.
@@ -37,6 +37,25 @@ workflow, Windows/macOS, or a native C++ build.
 
 See [CI build and validation](ci/README.md) for commands, the distinction between
 scripted packaging and an SDK build, and the remaining release validation.
+
+## Backend packages and native assets
+
+[Backend CI](https://github.com/failed33/SlicerVesselRaySegmentation/actions/workflows/backend-ci.yml)
+builds the two Python wheels from source distributions, accepts them outside the
+checkout, and repeats synthetic ARG inference in built CPU containers. A separate
+Linux job compiles the pinned Dawn host and patched ONNX Runtime provider, creates
+a versioned ZIP with hashes and upstream notices, then tests the extracted bundle
+on software Vulkan. These jobs use standard public GitHub-hosted runners.
+
+See [inference packaging](deployment/inference/README.md) and
+[MONAI service packaging](deployment/monai/README.md) for build and run commands.
+The extension archive, server containers, Python wheels and native asset ZIP are
+separate deliverables. SlicerWeb cannot load desktop native libraries.
+
+`deployment/migration-source.json` records the selected initial source snapshot.
+Research and private deployment files remain in the internal repository. The
+synthetic fixture validates packaging and transport, not trained-model quality.
+Physical GPU, full workflow and extension-installation checks remain release gates.
 
 ## Development and publication
 

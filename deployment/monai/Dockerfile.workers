@@ -1,0 +1,113 @@
+# Build from the repository root. Model artifacts are supplied through MLflow.
+ARG ARG_BACKEND=cpu
+FROM python:3.12-slim AS dependencies
+WORKDIR /opt/monai
+RUN pip install --no-cache-dir uv==0.12.23
+COPY deployment/inference/pyproject.toml deployment/inference/README.md deployment/inference/LICENSE.txt /opt/inference/
+COPY deployment/inference/src /opt/inference/src
+COPY deployment/monai/pyproject.toml deployment/monai/uv.lock deployment/monai/README.md deployment/monai/LICENSE.txt ./
+ENV UV_LINK_MODE=copy
+
+FROM dependencies AS arg-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group arg --python /usr/local/bin/python
+
+FROM dependencies AS arg-cuda-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group arg-cuda --python /usr/local/bin/python
+
+FROM dependencies AS arg-webgpu-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group arg-webgpu --python /usr/local/bin/python
+
+FROM dependencies AS model-o-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group model-o --python /usr/local/bin/python
+
+FROM python:3.12-slim AS worker
+WORKDIR /opt/monai
+ENV PYTHONPATH=/opt/worker ORT_DISABLE_TELEMETRY=1
+COPY deployment/monai/monai_service/__init__.py deployment/monai/monai_service/contracts.py deployment/monai/monai_service/worker_io.py /opt/worker/monai_service/
+COPY deployment/monai/monai_service/models/__init__.py /opt/worker/monai_service/models/__init__.py
+COPY deployment/monai/monai_service/schemas/__init__.py deployment/monai/monai_service/schemas/base.py /opt/worker/monai_service/schemas/
+
+FROM worker AS arg-code
+COPY deployment/monai/monai_service/models/arg.py /opt/worker/monai_service/models/arg.py
+ENTRYPOINT ["/opt/monai/.venv/bin/python", "-m", "monai_service.models.arg"]
+
+FROM arg-code AS arg_cpu
+COPY --from=arg-dependencies /opt/monai/.venv /opt/monai/.venv
+
+# The CUDA wheel and NVIDIA libraries are isolated from the CPU and Label images.
+# Driver libraries and hardware are supplied by the NVIDIA container runtime.
+FROM arg-code AS arg_cuda
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+COPY --from=arg-cuda-dependencies /opt/monai/.venv /opt/monai/.venv
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# Evaluation profile: the published EP does not yet support ARG ConvTranspose3D.
+FROM arg-code AS arg_webgpu
+RUN apt-get update && apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers && rm -rf /var/lib/apt/lists/*
+COPY --from=arg-webgpu-dependencies /opt/monai/.venv /opt/monai/.venv
+
+# Experimental, unbuilt AMD candidate. Select linux/amd64 explicitly; these
+# pinned ROCm packages and the plugin build do not support this host's ARM64.
+FROM ubuntu:24.04 AS arg-rocm-runtime
+RUN test "$(dpkg --print-architecture)" = amd64 || (echo 'MIGraphX requires --platform linux/amd64' >&2; exit 1)
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg python3.12 python3.12-venv libgomp1 && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /etc/apt/keyrings && curl --fail --location https://repo.radeon.com/rocm/rocm.gpg.key --output /tmp/rocm-key && gpg --dearmor --output /etc/apt/keyrings/rocm.gpg /tmp/rocm-key && rm /tmp/rocm-key
+RUN echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1.1 noble main' > /etc/apt/sources.list.d/rocm.list
+RUN apt-get update && apt-get install -y --no-install-recommends migraphx=2.14.0.70101-38~24.04 && rm -rf /var/lib/apt/lists/*
+RUN python3.12 -m venv /opt/tools && /opt/tools/bin/pip install --no-cache-dir uv==0.12.23
+ENV PATH=/opt/tools/bin:$PATH LD_LIBRARY_PATH=/opt/rocm/lib
+
+FROM arg-rocm-runtime AS arg_migraphx_plugin
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git ninja-build patchelf pkg-config migraphx-dev=2.14.0.70101-38~24.04 && rm -rf /var/lib/apt/lists/*
+RUN /opt/tools/bin/pip install --no-cache-dir cmake==4.2.3
+COPY deployment/inference/native/migraphx /opt/migraphx-build
+RUN bash /opt/migraphx-build/build.sh /output/wheels /opt/rocm
+
+FROM arg-rocm-runtime AS arg_migraphx
+WORKDIR /opt/monai
+COPY deployment/monai/pyproject.toml deployment/monai/uv.lock deployment/monai/README.md deployment/monai/LICENSE.txt ./
+ENV UV_LINK_MODE=copy PYTHONPATH=/opt/worker ORT_DISABLE_TELEMETRY=1
+COPY --from=dependencies /opt/inference /opt/inference
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group arg --python /usr/bin/python3.12
+COPY --from=arg_migraphx_plugin /output/wheels /tmp/migraphx-wheels
+RUN uv pip install --python /opt/monai/.venv/bin/python --no-deps /tmp/migraphx-wheels/*.whl && rm -rf /tmp/migraphx-wheels
+COPY --from=arg-code /opt/worker /opt/worker
+ENTRYPOINT ["/opt/monai/.venv/bin/python", "-m", "monai_service.models.arg"]
+
+FROM arg_${ARG_BACKEND} AS arg
+
+FROM dependencies AS label-dependencies
+COPY deployment/monai/monai_service ./monai_service
+COPY deployment/monai/label_app ./label_app
+COPY deployment/monai/vessel_deployment.py deployment/monai/asgi.py ./
+RUN apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-editable --no-dev --extra kubernetes --python /usr/local/bin/python
+
+FROM docker:cli AS docker-cli
+FROM python:3.12-slim AS label-runtime
+WORKDIR /opt/monai
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+RUN groupadd --gid 1000 monai && useradd --uid 1000 --gid 1000 --create-home monai
+ENV HOME=/home/monai
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY deployment/monai/monai_service ./monai_service
+COPY deployment/monai/label_app ./label_app
+COPY deployment/monai/asgi.py deployment/monai/vessel_deployment.py ./
+ENTRYPOINT ["/opt/monai/.venv/bin/uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM label-runtime AS label
+COPY --from=label-dependencies /opt/monai/.venv /opt/monai/.venv
+
+# External Label app with ARG inference in the same environment.
+FROM label-dependencies AS label-arg-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-editable --no-dev --group arg --python /usr/local/bin/python
+
+FROM label-runtime AS label_arg
+COPY --from=label-arg-dependencies /opt/monai/.venv /opt/monai/.venv
+
+# Matched Dawn/ORT native assets are supplied as a separate file binding.
+FROM worker AS model_o
+RUN apt-get update && apt-get install -y --no-install-recommends libegl1 libgomp1 libvulkan1 libxext6 mesa-vulkan-drivers && rm -rf /var/lib/apt/lists/*
+COPY --from=model-o-dependencies /opt/monai/.venv /opt/monai/.venv
+COPY deployment/monai/monai_service/models/model_o.py /opt/worker/monai_service/models/model_o.py
+ENTRYPOINT ["/opt/monai/.venv/bin/python", "-m", "monai_service.models.model_o"]

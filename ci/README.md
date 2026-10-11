@@ -127,3 +127,25 @@ actual supported deployment and desktop platforms.
 - [SlicerWeb extension packaging](https://github.com/lassoan/SlicerWeb/blob/main/docs/extensions.md)
 - [SlicerWeb runtime publication](https://github.com/lassoan/SlicerWeb#building)
 - [GitHub Actions billing and public repositories](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+## Backend validation
+
+`backend-ci.yml` runs independently from the stable/nightly/SlicerWeb demo checks.
+It builds wheel and source distributions for both production packages using uv
+0.12.23. A fresh dependency environment comes from the existing lockfile; built
+wheels replace source-built packages before acceptance. `python -I` and package
+origin assertions reject accidental source imports. Tests start the installed
+`asgi:app`, use a temporary MLflow registry and execute an input-dependent ONNX
+fixture in both direct and process modes through real HTTP. Container acceptance
+also checks that the ARG worker has no Torch or nnU-Net installation.
+
+The native job compiles Linux x86-64, bundles the CMake install tree with upstream
+licenses and a platform/hash manifest, and tests shared-buffer execution after ZIP
+extraction. Software Vulkan validates native integration on a free hosted runner.
+Hardware acceptance still requires the selected real model and actual target GPU.
+Current macOS local checks use the previously built matching asset set; they do
+not claim a fresh macOS native build from this workflow. Windows and Linux ARM64
+native builds are configured in CMake but are not part of this first CI slice.
+
+Artifacts expire after seven days. Containers are built and tested locally on the
+runner; this workflow does not publish registry images or create a release.

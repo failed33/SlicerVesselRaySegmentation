@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 build/
+.venv*/
+.pytest_cache/
+.runtime/
+:memory:.ses

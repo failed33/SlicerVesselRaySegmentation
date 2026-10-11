@@ -1,0 +1,7 @@
+# Test wiring only. This image does not contain ARG or ModelO inference.
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir SimpleITK==2.5.6
+COPY tests/smoke_worker.py /opt/worker/smoke_worker.py
+
+ENTRYPOINT ["python", "/opt/worker/smoke_worker.py"]
