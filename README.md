@@ -13,6 +13,21 @@ Slicer's conventional `Slicer` prefix. Its current module is
 that folder through Slicer's additional module paths and open **Vessel Ray
 Segmentation Demo** to create a synthetic, editable three-point Markups curve.
 
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `VesselRaySegmentationDemo/` | Slicer module, resources and in-application tests |
+| `deployment/inference/` | Installable ARG/ModelO runtime and pinned native build |
+| `deployment/monai/` | MONAI Label service, worker images and service tests |
+| `tools/packaging/` | Scripted archive, SlicerWeb wheel and native bundle builders |
+| `tools/runtimes/` | Upstream application downloads and runtime preparation |
+| `tools/publication/` | GitLab-to-GitHub publication |
+| `tests/infrastructure/` | Packaging and publication unit tests |
+| `tests/integration/` | Tests executed against built packages and real applications |
+| `docs/` | Build, test and release instructions |
+| `build/` | Ignored downloads, environments, build output and reports |
+
 ## Build and test
 
 [Extension CI](https://github.com/failed33/SlicerVesselRaySegmentation/actions/workflows/extension-ci.yml)
@@ -35,8 +50,8 @@ These jobs validate the Python packaging and real application integration. The
 demo checks do not validate ARG/ModelO inference, GPU behavior, the complete vessel
 workflow, Windows/macOS, or a native C++ build.
 
-See [CI build and validation](ci/README.md) for commands, the distinction between
-scripted packaging and an SDK build, and the remaining release validation.
+See [build and validation](docs/build-and-test.md) for commands, the distinction
+between scripted packaging and an SDK build, and the remaining release validation.
 
 ## Backend packages and native assets
 
@@ -67,7 +82,7 @@ Git commits with the same IDs, and published history is never force-pushed.
 Run the infrastructure tests with Python 3.12+, Git, CMake 3.28+ and Make installed:
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests/infrastructure -v
 ```
 
 The tests create temporary local Git repositories. They need no credentials or

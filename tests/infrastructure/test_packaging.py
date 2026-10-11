@@ -5,7 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from ci.build_package import build_package
+from tools.packaging.build_scripted import build_package
 
 
 class ScriptedPackageTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class ScriptedPackageTest(unittest.TestCase):
                 },
             )
             source = (
-                Path(__file__).resolve().parents[1]
+                Path(__file__).resolve().parents[2]
                 / "VesselRaySegmentationDemo/VesselRaySegmentationDemo.py"
             )
             installed = (

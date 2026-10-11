@@ -258,7 +258,7 @@ def main() -> None:
     args = parser.parse_args()
     locations = check_installed_packages()
     fixture = runpy.run_path(
-        str(Path(__file__).resolve().parents[1] / "deployment/monai/tests/fixture_factory.py")
+        str(Path(__file__).resolve().parents[3] / "deployment/monai/tests/fixture_factory.py")
     )
     with tempfile.TemporaryDirectory(prefix="vessel-backend-") as temporary:
         root = Path(temporary)

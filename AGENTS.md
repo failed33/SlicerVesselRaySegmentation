@@ -6,12 +6,19 @@ suitable for public release. Keep research, model weights and private deployment
 settings outside this repository.
 
 Keep the standard Slicer SDK build in the root CMake project. Free-runner scripted
-packaging lives in `ci/CMakeLists.txt`; both use the module's `ModuleFiles.cmake`.
+packaging lives in `tools/packaging/CMakeLists.txt`; both use the module's
+`ModuleFiles.cmake`.
 Do not describe scripted-package checks as SDK/native build validation.
 
-Run `python3 -m unittest discover -s tests -v` with Python 3.12+, Git and CMake
-3.28+. Module integration tests must also pass in real stable Slicer, nightly
+Run `python3 -m unittest discover -s tests/infrastructure -v` with Python 3.12+,
+Git and CMake 3.28+. Module integration tests must also pass in real stable Slicer, nightly
 Slicer and SlicerWeb. Do not replace those gates with mocked imports.
+
+Keep build and publication commands under `tools/`, application/package acceptance
+under `tests/integration/`, and infrastructure unit tests under
+`tests/infrastructure/`. Detailed instructions belong in `docs/build-and-test.md`.
+Put downloads, extracted packages, virtual environments and reports under ignored
+`build/`. Do not add generated artifacts or one-off proof files to the root.
 
 ## Alerts
 
@@ -63,3 +70,9 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   Hosted native CI explicitly sets `ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1` for
   its Mesa check. Keep that opt-in confined to software acceptance and report
   the actual adapter; it does not establish physical GPU execution.
+
+- The existing desktop/browser checks use different inference runtimes. They do
+  not validate one WASM inference component on both hosts. Desktop Slicer's local
+  QtWebEngine is based on Chromium 87 and cannot provide modern WebGPU. A shared
+  WASM component needs a tested GPU host on desktop; a Pyodide side-module wheel
+  cannot be imported by native CPython.

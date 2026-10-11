@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths: ["deployment/**", "ci/*backend*", "ci/*native*", ".github/workflows/backend-ci.yml"]
+    paths: ["deployment/**", "tools/**", "tests/integration/backend/**", ".github/workflows/backend-ci.yml"]
   pull_request:
-    paths: ["deployment/**", "ci/*backend*", "ci/*native*", ".github/workflows/backend-ci.yml"]
+    paths: ["deployment/**", "tools/**", "tests/integration/backend/**", ".github/workflows/backend-ci.yml"]
   workflow_dispatch:
 
 permissions:
@@ -49,13 +49,13 @@ jobs:
           uv pip install --python build/backend/installed/bin/python --no-deps --reinstall build/backend/dist/*.whl
       - name: Check backend formatting and imports
         run: |
-          build/backend/installed/bin/ruff check ci/*backend*.py ci/*native*.py deployment/inference deployment/monai
-          build/backend/installed/bin/ruff format --check ci/*backend*.py ci/*native*.py deployment/inference deployment/monai
+          build/backend/installed/bin/ruff check tools tests/integration/backend deployment/inference deployment/monai
+          build/backend/installed/bin/ruff format --check tools tests/integration/backend deployment/inference deployment/monai
       - name: Test standalone backend behavior
         working-directory: deployment/monai
         run: ../../build/backend/installed/bin/python -m pytest -q tests --junitxml=../../build/backend/monai-tests.xml
       - name: Accept installed wheels outside the checkout
-        run: build/backend/installed/bin/python -I ci/test_backend_wheels.py --output build/backend/wheels.json
+        run: build/backend/installed/bin/python -I tests/integration/backend/wheels.py --output build/backend/wheels.json
       - name: Build CPU ARG and MONAI Label containers
         run: |
           docker build -f deployment/monai/Dockerfile.workers --target arg -t vessel-arg:ci .
@@ -63,7 +63,7 @@ jobs:
             --build-arg MONAI_UID="$(id -u)" --build-arg MONAI_GID="$(id -g)" -t vessel-label:ci .
       - name: Accept built containers with the synthetic ONNX model
         run: |
-          build/backend/installed/bin/python -I ci/test_backend_wheels.py --server-image vessel-label:ci --worker-image vessel-arg:ci --output build/backend/containers/report.json
+          build/backend/installed/bin/python -I tests/integration/backend/wheels.py --server-image vessel-label:ci --worker-image vessel-arg:ci --output build/backend/containers/report.json
           docker image inspect vessel-arg:ci vessel-label:ci > build/backend/containers/images.json
       - name: Keep distributions and acceptance evidence
         if: always()
@@ -106,8 +106,8 @@ jobs:
           # ORT intentionally requires an explicit opt-in on a host without a GPU.
           ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER: "1"
         run: |
-          python ci/bundle_native.py --build build/native --output build/backend/native
-          deployment/inference/.venv/bin/python ci/test_native_bundle.py build/backend/native/*.zip --output build/backend/native/report.json
+          python tools/packaging/bundle_native.py --build build/native --output build/backend/native
+          deployment/inference/.venv/bin/python tests/integration/backend/native_bundle.py build/backend/native/*.zip --output build/backend/native/report.json
       - name: Keep the native bundle and test evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

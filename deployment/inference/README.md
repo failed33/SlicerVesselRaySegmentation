@@ -35,7 +35,7 @@ cmake -S deployment/inference/native -B build/native -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$PWD/build/native/assets"
 cmake --build build/native --parallel 2
 cmake --install build/native
-python ci/bundle_native.py --build build/native --output build/backend/native
+python tools/packaging/bundle_native.py --build build/native --output build/backend/native
 ```
 
 `native/pins.cmake` fixes the Dawn and ORT source identities. The build verifies

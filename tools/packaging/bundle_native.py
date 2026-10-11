@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     build, output = args.build.resolve(), args.output.resolve()
-    source = Path(__file__).resolve().parents[1] / "deployment/inference"
+    source = Path(__file__).resolve().parents[2] / "deployment/inference"
     pins = dict(
         re.findall(
             r"set\((DAWN_COMMIT|ORT_COMMIT) (\w+)\)", (source / "native/pins.cmake").read_text()

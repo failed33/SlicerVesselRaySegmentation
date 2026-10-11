@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ci.publish import configure_ssh, git, publication_ref, publish
+from tools.publication.publish import configure_ssh, git, publication_ref, publish
 
 
 class PublicationRulesTest(unittest.TestCase):

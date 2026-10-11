@@ -88,7 +88,7 @@ def configure_ssh(environment: Mapping[str, str]) -> str:
 def main() -> None:
     ref = publication_ref(os.environ)
     remote = configure_ssh(os.environ)
-    repository = Path(__file__).resolve().parents[1]
+    repository = Path(__file__).resolve().parents[2]
     commit = os.environ["CI_COMMIT_SHA"]
     published = publish(repository, remote, ref, commit)
     print(f"Published and verified {ref} at {published}")

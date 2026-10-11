@@ -18,7 +18,7 @@ ctest --test-dir build/sdk --output-on-failure
 cmake --build build/sdk --target package
 ```
 
-The free-runner jobs use a separate, scripted-only CMake/CPack project in `ci/`.
+The free-runner jobs use a separate, scripted-only CMake/CPack project in `tools/packaging/`.
 Both builds read `VesselRaySegmentationDemo/ModuleFiles.cmake`, so file selection
 does not drift between their packaging rules. The CI project compiles Python
 bytecode as a syntax check, packages the scripts, resources and license, then
@@ -71,13 +71,13 @@ repository. GitHub CI has no permission to publish source changes or releases.
 Infrastructure tests:
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests/infrastructure -v
 ```
 
 Scripted archive:
 
 ```sh
-python3 ci/build_package.py --slicer-version 5.13 --output build/package
+python3 tools/packaging/build_scripted.py --slicer-version 5.13 --output build/package
 ```
 
 For a downloaded desktop Slicer, replace the version and launcher path below with
@@ -88,21 +88,21 @@ export PACKAGE_ROOT="$PWD/build/package/unpacked"
 export TEST_REPORT="$PWD/build/package/desktop.json"
 xvfb-run -a /path/to/Slicer --no-splash --no-main-window --testing \
   --additional-module-paths "$PACKAGE_ROOT/lib/Slicer-5.13/qt-scripted-modules" \
-  --python-script "$PWD/ci/test_desktop.py"
+  --python-script "$PWD/tests/integration/slicer/desktop.py"
 ```
 
 Browser tests need Python 3.12+, CMake, Make, Git, GitHub CLI, Node 22+ and Chrome:
 
 ```sh
-python3 ci/prepare_slicerweb.py --output build/web-runtime
+python3 tools/runtimes/prepare_slicerweb.py --output build/web-runtime
 # Use slicer_version printed above; the published runtime currently supplies it.
-python3 ci/build_package.py --slicer-version 5.13 --output build/web-package
-python3 ci/package_slicerweb.py --source build/web-runtime/SlicerWeb \
+python3 tools/packaging/build_scripted.py --slicer-version 5.13 --output build/web-package
+python3 tools/packaging/build_slicerweb.py --source build/web-runtime/SlicerWeb \
   --slicer-version 5.13 --build build/web-package
 export SLICERWEB_WHEELS="$PWD/build/web-runtime/wheels"
 export SLICERWEB_EXTENSIONS="$PWD/build/web-package/wheels"
 (cd build/web-runtime/SlicerWeb/web && npm ci && npm run build:app)
-node ci/test_slicerweb.mjs build/web-runtime/SlicerWeb build/web-package
+node tests/integration/slicer/slicerweb.mjs build/web-runtime/SlicerWeb build/web-package
 ```
 
 ## Validate the vessel application after migration

@@ -19,7 +19,7 @@ def package(source: Path, build: Path, version: str) -> None:
     sources.mkdir(exist_ok=True)
     source_link = sources / "VesselRaySegmentation"
     if not source_link.exists():
-        source_link.symlink_to(Path(__file__).resolve().parents[1], target_is_directory=True)
+        source_link.symlink_to(Path(__file__).resolve().parents[2], target_is_directory=True)
     builder.write_extension_wheels(
         SimpleNamespace(
             install=str(build / "install"),

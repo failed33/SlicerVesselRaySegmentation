@@ -47,17 +47,17 @@ jobs:
             libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0
       - name: Download current ${{ matrix.channel }} Slicer and verify SHA-512
         id: slicer
-        run: python ci/download_slicer.py "${{ matrix.channel }}" --output build/slicer
+        run: python tools/runtimes/download_slicer.py "${{ matrix.channel }}" --output build/slicer
       - name: Test publication and scripted packaging
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests/infrastructure -v
       - name: Build the scripted extension package
-        run: python ci/build_package.py --slicer-version "${{ steps.slicer.outputs.slicer_version }}" --output build/desktop-package
+        run: python tools/packaging/build_scripted.py --slicer-version "${{ steps.slicer.outputs.slicer_version }}" --output build/desktop-package
       - name: Test installed package in real Slicer
         run: |
           xvfb-run -a "${{ steps.slicer.outputs.slicer_executable }}" \
             --no-splash --no-main-window --testing \
             --additional-module-paths "$PACKAGE_ROOT/lib/Slicer-${{ steps.slicer.outputs.slicer_version }}/qt-scripted-modules" \
-            --python-script "$GITHUB_WORKSPACE/ci/test_desktop.py" 2>&1 | tee build/desktop-package/slicer.log
+            --python-script "$GITHUB_WORKSPACE/tests/integration/slicer/desktop.py" 2>&1 | tee build/desktop-package/slicer.log
       - name: Keep the package, test report and download provenance
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -89,18 +89,18 @@ jobs:
         id: web
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python ci/prepare_slicerweb.py --output build/web-runtime
+        run: python tools/runtimes/prepare_slicerweb.py --output build/web-runtime
       - name: Build the scripted package and SlicerWeb wheel
         run: |
-          python ci/build_package.py --slicer-version "${{ steps.web.outputs.slicer_version }}" --output build/web-package
-          python ci/package_slicerweb.py --source "${{ steps.web.outputs.source }}" --slicer-version "${{ steps.web.outputs.slicer_version }}" --build build/web-package
+          python tools/packaging/build_scripted.py --slicer-version "${{ steps.web.outputs.slicer_version }}" --output build/web-package
+          python tools/packaging/build_slicerweb.py --source "${{ steps.web.outputs.source }}" --slicer-version "${{ steps.web.outputs.slicer_version }}" --build build/web-package
       - name: Build matching browser application
         working-directory: ${{ steps.web.outputs.source }}/web
         run: |
           npm ci
           npm run build:app
       - name: Install wheel and test module in headless Chrome
-        run: node ci/test_slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package
+        run: node tests/integration/slicer/slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package
       - name: Keep the wheel, browser report and runtime provenance
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

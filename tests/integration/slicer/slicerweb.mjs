@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const [source, output] = process.argv.slice(2).map((value) => path.resolve(value));
 const { chromium } = await import(pathToFileURL(path.join(source, "web/node_modules/playwright-core/index.mjs")));
-const testCode = await readFile(new URL("test_module.py", import.meta.url), "utf8");
+const testCode = await readFile(new URL("module.py", import.meta.url), "utf8");
 const info = JSON.parse(await readFile(path.join(source, "../wheels/build-info.json"), "utf8"));
 const index = JSON.parse(await readFile(path.join(output, "wheels/index.json"), "utf8"));
 assert.equal(index.extensions.length, 1);

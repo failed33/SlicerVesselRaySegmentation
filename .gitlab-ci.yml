@@ -26,7 +26,7 @@ before_script:
 test:publication:
   stage: test
   script:
-    - python -m unittest discover -s tests -v
+    - python -m unittest discover -s tests/infrastructure -v
 
 publish:github:
   stage: publish
@@ -40,4 +40,4 @@ publish:github:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/'
   script:
-    - python ci/publish.py
+    - python tools/publication/publish.py

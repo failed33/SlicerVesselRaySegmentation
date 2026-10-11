@@ -1,1 +1,0 @@
-SlicerVesselRaySegmentation publication demo, revision 2.

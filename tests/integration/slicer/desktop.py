@@ -9,7 +9,7 @@ from pathlib import Path
 import slicer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_module import test_installed_module
+from module import test_installed_module
 
 report = Path(os.environ["TEST_REPORT"])
 try:
