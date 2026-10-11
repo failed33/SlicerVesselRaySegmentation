@@ -78,7 +78,7 @@ def validate_output(output: Path, root: Path = ROOT) -> Path:
 
 def run(command: list[str], cwd: Path, output: Path, env: dict[str, str] | None = None) -> None:
     print(f"Running: {shlex.join(command)}", flush=True)
-    with (output / "build.log").open("a", encoding="utf-8") as log:
+    with (output / "build.log").open("a", encoding="utf-8", buffering=1) as log:
         log.write(f"\nRunning: {shlex.join(command)}\n")
         with subprocess.Popen(
             command,
@@ -115,6 +115,30 @@ def prepare_checkout(name: str, url: str, commit: str, output: Path, cache: Path
     if actual != commit:
         raise ValueError(f"{name} source identity mismatch: {actual}; use a fresh output directory")
     return source
+
+
+def ensure_commonjs_boundary(source: Path) -> None:
+    # ORT's root has no package.json. Without this boundary, Node can inherit
+    # type=module from the enclosing application's unrelated package.json and
+    # misinterpret upstream CommonJS generators such as wasm_post_build.js.
+    boundary = source / "package.json"
+    expected = {"private": True, "type": "commonjs"}
+    if boundary.exists() and json.loads(boundary.read_text()) != expected:
+        raise ValueError("Unexpected ORT root package.json; use a fresh output directory")
+    boundary.write_text(json.dumps(expected, indent=2) + "\n")
+
+
+def ensure_typescript_boundary(source: Path) -> None:
+    # TypeScript otherwise discovers ambient types in every ancestor's
+    # node_modules. Keep the upstream build independent of an enclosing app.
+    path = source / "js/tsconfig.json"
+    config = json.loads(path.read_text())
+    options = config["compilerOptions"]
+    expected = ["./node_modules/@types"]
+    if "typeRoots" in options and options["typeRoots"] != expected:
+        raise ValueError("Unexpected ORT base typeRoots; use a fresh output directory")
+    options["typeRoots"] = expected
+    path.write_text(json.dumps(config, indent=2) + "\n")
 
 
 def apply_patches(source: Path, output: Path, pins: dict[str, str]) -> None:
@@ -209,6 +233,7 @@ def build_command(source: Path, output: Path, jobs: int, emscripten: str) -> lis
 
 
 def build_javascript(source: Path, output: Path) -> None:
+    ensure_typescript_boundary(source)
     env = {
         **os.environ,
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
@@ -275,7 +300,10 @@ def package(source: Path, output: Path, identity: dict[str, object]) -> Path:
     version = (source / "VERSION_NUMBER").read_text().strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Unexpected ORT version: {version}")
-    patch_set = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    recipe_hash = sha256(Path(__file__))
+    patch_set = hashlib.sha256(
+        json.dumps({**identity, "build_recipe_sha256": recipe_hash}, sort_keys=True).encode()
+    ).hexdigest()
     bundle_id = f"onnxruntime-webgpu-{version}-{str(identity['ORT_COMMIT'])[:8]}-{patch_set[:12]}"
     staging = output / "dist.tmp"
     if staging.exists():
@@ -301,7 +329,9 @@ def package(source: Path, output: Path, identity: dict[str, object]) -> Path:
             "python": sys.version.split()[0],
         },
         "upstream_dependencies_sha256": sha256(source / "cmake/deps.txt"),
-        "build_recipe_sha256": sha256(Path(__file__)),
+        "build_recipe_sha256": recipe_hash,
+        "source_commonjs_boundary_sha256": sha256(source / "package.json"),
+        "source_typescript_boundary_sha256": sha256(source / "js/tsconfig.json"),
         "source_diffs": {
             name: hashlib.sha256(
                 subprocess.check_output(["git", "diff", "--binary", "HEAD"], cwd=directory)
@@ -380,6 +410,7 @@ def main() -> None:
     state.write_text(json.dumps(identity, indent=2) + "\n")
     pins = read_pins()
     source = prepare_checkout("ort", ORT_URL, pins["ORT_COMMIT"], output, args.source_cache)
+    ensure_commonjs_boundary(source)
     dawn = prepare_checkout("dawn", DAWN_URL, pins["DAWN_COMMIT"], output, args.dawn_source_cache)
     run(
         ["git", "submodule", "update", "--init", "--depth", "1", "cmake/external/emsdk"],

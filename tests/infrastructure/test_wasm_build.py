@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,8 @@ from tools.packaging.build_wasm import (
     INFERENCE,
     RUNTIME_FILES,
     build_command,
+    ensure_commonjs_boundary,
+    ensure_typescript_boundary,
     package,
     patch_paths,
     read_pins,
@@ -21,6 +24,44 @@ from tools.packaging.build_wasm import (
 
 
 class WasmBuildTest(unittest.TestCase):
+    def test_typescript_boundary_preserves_options_and_rejects_unexpected_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            path = source / "js/tsconfig.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps({"compilerOptions": {"strict": True}, "include": ["lib"]}))
+            ensure_typescript_boundary(source)
+            expected = {
+                "compilerOptions": {"strict": True, "typeRoots": ["./node_modules/@types"]},
+                "include": ["lib"],
+            }
+            self.assertEqual(json.loads(path.read_text()), expected)
+            ensure_typescript_boundary(source)
+            expected["compilerOptions"]["typeRoots"] = ["../unrelated/@types"]
+            path.write_text(json.dumps(expected))
+            with self.assertRaisesRegex(ValueError, "Unexpected ORT base typeRoots"):
+                ensure_typescript_boundary(source)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the upstream generator probe")
+    def test_upstream_generators_do_not_inherit_parent_esm_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            (parent / "package.json").write_text('{"type":"module"}\n')
+            source = parent / "source"
+            source.mkdir()
+            generator = source / "generator.js"
+            generator.write_text('console.log(typeof require("node:os").platform);\n')
+            inherited = subprocess.run(["node", str(generator)], capture_output=True)
+            self.assertNotEqual(inherited.returncode, 0)
+            ensure_commonjs_boundary(source)
+            self.assertEqual(
+                subprocess.check_output(["node", str(generator)], text=True).strip(), "function"
+            )
+            ensure_commonjs_boundary(source)
+            (source / "package.json").write_text('{"type":"module"}\n')
+            with self.assertRaisesRegex(ValueError, "Unexpected ORT root"):
+                ensure_commonjs_boundary(source)
+
     def test_source_identity_uses_canonical_pins_and_patch_content(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             inference = Path(temporary)

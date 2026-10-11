@@ -26,7 +26,10 @@ build generates WGSL using the native provider; existing shader assets remain
 WGSL. The small `ort-webgpu-esm.patch` adds an ESM output to upstream's
 `npm run build -- --bundle-mode=perf --webgpu-ep`. The complete production bundle
 matrix requires additional CPU, JSEP and JSPI artifacts that this component does
-not ship.
+not ship. The selective build returns after emitting the ESM, before upstream's
+separate test bundle that requires test-runner-generated fixture metadata.
+Generated-checkout CommonJS and TypeScript type roots keep enclosing application
+configuration from changing the upstream build; the manifest records their hashes.
 
 `build/wasm/dist` contains:
 
@@ -36,7 +39,7 @@ not ship.
   toolchain, patch and file hashes.
 
 The matching versioned ZIP lives alongside `dist`. The manifest's `bundle_id`
-includes the ORT version, source commit and complete patch-set identity. No
+includes the ORT version, source commit, patches and builder identity. No
 prebuilt npm runtime is substituted when compilation fails.
 
 In a browser worker, import `ort.webgpu.min.mjs`, set `ort.env.wasm.wasmPaths` to

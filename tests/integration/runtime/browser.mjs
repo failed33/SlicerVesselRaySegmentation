@@ -93,7 +93,8 @@ async function runCase(device, spec, counters) {
     return { name: spec.name, status: "passed", model_sha256: hash, dtype: spec.dtype,
       input_shape: spec.input_shape, output_shape: spec.output_shape, iterations: spec.iterations,
       cpu_fallback_disabled: true, caller_output_buffer_retained: true,
-      pipeline_host_waits: waits, input_upload_bytes: writes, final_readbacks: 1, values: actual };
+      caller_completion_waits: waits, caller_input_upload_bytes: writes,
+      caller_final_readbacks: 1, values: actual };
   } finally {
     counters.inputs = new Set();
     await device.queue.onSubmittedWorkDone();
@@ -124,6 +125,7 @@ export async function run(optionsJson = "{}") {
   const f16 = adapter.features.has("shader-f16");
   check(f16 || !options.require_f16, "Adapter lacks shader-f16");
   const device = await adapter.requestDevice({ requiredFeatures: f16 ? ["shader-f16"] : [] });
+  // Observe these JavaScript calls only; mapAsync and provider-internal transfers are not counted.
   const counters = { waits: 0, inputWrites: 0, inputs: new Set() };
   const wait = device.queue.onSubmittedWorkDone.bind(device.queue);
   device.queue.onSubmittedWorkDone = () => { counters.waits++; return wait(); };
@@ -150,6 +152,11 @@ export async function run(optionsJson = "{}") {
     }
     return JSON.stringify({ status: "passed", ort_version: ort.env.versions.web,
       shader_f16: f16, physical_gpu_acceptance: !software, runtime_manifest: manifest,
+      observer_scope: {
+        completion_waits: "GPUQueue.onSubmittedWorkDone calls only; excludes GPUBuffer.mapAsync waits.",
+        input_uploads: "GPUQueue.writeBuffer calls targeting caller input buffers only; excludes other transfers.",
+        readbacks: "The test's explicit final audit-buffer readback only; excludes provider-internal readbacks.",
+      },
       adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device,
         description: info.description, is_fallback: fallback, software }, cases: results });
   } finally {

@@ -174,7 +174,10 @@ Runtime acceptance executes shared Python ModelO preparation and four synthetic
 ConvTranspose3D models: both ARG kernel forms in FP32 and FP16. WGSL produces
 changed input buffers, ORT consumes them and writes caller-owned GPU outputs,
 and WGSL consumes those outputs. Each case runs three iterations across two
-session lifecycles with CPU fallback disabled and one final readback. FP16 is
+session lifecycles with CPU fallback disabled. The caller submits the chain
+without input uploads or intermediate completion waits and performs one final
+readback. Those counters observe caller operations; they do not measure internal
+ORT/provider synchronization. FP16 is
 reported as skipped if the device lacks `shader-f16`; use `--require-f16` for
 hardware acceptance. This proves the runtime boundary, not full ModelO/ARG model
 parity, clinical accuracy, the complete workflow or a catalog-ready SDK release.

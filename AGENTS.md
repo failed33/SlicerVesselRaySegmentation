@@ -103,3 +103,18 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   scripted packager restores CPack's Unix mode bits so the bundled private
   Python remains executable after extraction. Managed Python's internal
   symlinks are materialized before packaging.
+
+- ORT's CommonJS WASM post-build script can inherit `type: module` from an
+  enclosing internal repository because its source root has no package.json.
+  The isolated builder creates a local CommonJS package boundary in ignored
+  build output. Keep that boundary explicit when building inside a parent repo.
+  TypeScript also searches enclosing `node_modules/@types` by default; scope
+  its automatic type roots to ORT's own installed dependencies so internal Bun
+  globals cannot enter the build.
+
+- Runtime acceptance counters do not observe all ORT/Dawn activity. A native
+  mutation check inserted 24 raw GPU completion waits and still passed with
+  zero Python-host waits. Browser counters wrap selected JavaScript queue calls
+  and do not count `GPUBuffer.mapAsync` waits. Keep report fields and claims
+  scoped to the observed caller operations; they do not prove that the provider
+  performs no internal synchronization or transfers.

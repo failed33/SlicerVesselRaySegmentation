@@ -72,6 +72,7 @@ def run_case(host: DawnHost, fixtures: Path, spec: dict[str, Any]) -> dict[str, 
         )
         providers = session.native_session.get_providers()
         assert "WebGpuExecutionProvider" in providers
+        # These counters observe DawnHost's Python calls, not ORT/Dawn internals.
         before = (host.wait_count, host.write_bytes, host.readback_count)
         for _ in range(spec["iterations"]):
             producer.dispatch((spec["input_elements"] + 63) // 64)
@@ -107,9 +108,9 @@ def run_case(host: DawnHost, fixtures: Path, spec: dict[str, Any]) -> dict[str, 
             "node_providers": assignments,
             "cpu_fallback_disabled": True,
             "caller_output_buffer_retained": True,
-            "pipeline_host_waits": 0,
-            "input_upload_bytes": 0,
-            "final_readbacks": 1,
+            "caller_completion_waits": 0,
+            "caller_input_upload_bytes": 0,
+            "caller_final_readbacks": 1,
             "values": actual.tolist(),
         }
 
@@ -151,6 +152,11 @@ def run(
             "adapter": adapter,
             "shader_f16": supports_f16,
             "physical_gpu_acceptance": not adapter["software"],
+            "observer_scope": {
+                "completion_waits": "DawnHost Python wait counter only; excludes ORT/Dawn internals.",
+                "input_uploads": "DawnHost Python write counter only; excludes ORT/Dawn internals.",
+                "readbacks": "DawnHost Python read counter only; excludes ORT/Dawn internals.",
+            },
             "application": application_summary(),
             "cases": results,
         }

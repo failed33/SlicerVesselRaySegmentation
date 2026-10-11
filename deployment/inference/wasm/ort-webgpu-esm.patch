@@ -1,7 +1,7 @@
 diff --git a/js/web/script/build.ts b/js/web/script/build.ts
 --- a/js/web/script/build.ts
 +++ b/js/web/script/build.ts
-@@ -623,6 +623,16 @@ async function main() {
+@@ -623,6 +623,18 @@ async function main() {
        format: 'iife',
      });
    }
@@ -14,6 +14,8 @@ diff --git a/js/web/script/build.ts b/js/web/script/build.ts
 +      format: 'esm',
 +      define: { ...DEFAULT_DEFINE, 'BUILD_DEFS.DISABLE_WEBGL': 'true' },
 +    });
++    // The perf test bundle requires test-runner-generated fixture metadata.
++    return;
 +  }
  
    if (BUNDLE_MODE === 'prod') {
