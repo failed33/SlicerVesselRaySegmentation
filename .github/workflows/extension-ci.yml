@@ -1,0 +1,111 @@
+name: Extension CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "27 4 * * *"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: extension-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop Linux / ${{ matrix.channel }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, nightly]
+    env:
+      QTWEBENGINE_DISABLE_SANDBOX: "1"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      PACKAGE_ROOT: ${{ github.workspace }}/build/desktop-package/unpacked
+      TEST_REPORT: ${{ github.workspace }}/build/desktop-package/desktop.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install Slicer runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libglu1-mesa libopengl0 libxrender1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libnss3 libasound2t64 libpulse0
+      - name: Download current ${{ matrix.channel }} Slicer and verify SHA-512
+        id: slicer
+        run: python ci/download_slicer.py "${{ matrix.channel }}" --output build/slicer
+      - name: Test publication and scripted packaging
+        run: python -m unittest discover -s tests -v
+      - name: Build the scripted extension package
+        run: python ci/build_package.py --slicer-version "${{ steps.slicer.outputs.slicer_version }}" --output build/desktop-package
+      - name: Test installed package in real Slicer
+        run: |
+          xvfb-run -a "${{ steps.slicer.outputs.slicer_executable }}" \
+            --no-splash --no-main-window --testing \
+            --additional-module-paths "$PACKAGE_ROOT/lib/Slicer-${{ steps.slicer.outputs.slicer_version }}/qt-scripted-modules" \
+            --python-script "$GITHUB_WORKSPACE/ci/test_desktop.py" 2>&1 | tee build/desktop-package/slicer.log
+      - name: Keep the package, test report and download provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-linux-${{ matrix.channel }}
+          retention-days: 7
+          path: |
+            build/desktop-package/*.zip
+            build/desktop-package/*.json
+            build/desktop-package/*.log
+            build/slicer/download.json
+
+  slicerweb:
+    name: SlicerWeb / published runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SLICERWEB_WHEELS: ${{ github.workspace }}/build/web-runtime/wheels
+      SLICERWEB_EXTENSIONS: ${{ github.workspace }}/build/web-package/wheels
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Download published runtime and its matching SlicerWeb source
+        id: web
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ci/prepare_slicerweb.py --output build/web-runtime
+      - name: Build the scripted package and SlicerWeb wheel
+        run: |
+          python ci/build_package.py --slicer-version "${{ steps.web.outputs.slicer_version }}" --output build/web-package
+          python ci/package_slicerweb.py --source "${{ steps.web.outputs.source }}" --slicer-version "${{ steps.web.outputs.slicer_version }}" --build build/web-package
+      - name: Build matching browser application
+        working-directory: ${{ steps.web.outputs.source }}/web
+        run: |
+          npm ci
+          npm run build:app
+      - name: Install wheel and test module in headless Chrome
+        run: node ci/test_slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package
+      - name: Keep the wheel, browser report and runtime provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: slicerweb
+          retention-days: 7
+          path: |
+            build/web-package/wheels/
+            build/web-package/results/
+            build/web-runtime/wheels/build-info.json

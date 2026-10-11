@@ -1,10 +1,42 @@
 # SlicerVesselRaySegmentation
 
-This repository currently demonstrates the publication infrastructure for a planned
-3D Slicer extension. It does not yet contain the extension implementation.
+This repository contains publication infrastructure and a small scripted module
+demo for a planned 3D Slicer extension. It does not yet contain the vessel
+segmentation implementation.
 
 The planned workflow is ARG inference, disconnected-component removal, centerline
 generation and manual editing, then ModelO inference.
+
+The extension's CMake project is `VesselRaySegmentation`; the repository name has
+Slicer's conventional `Slicer` prefix. Its current module is
+`VesselRaySegmentationDemo`, following the Module/Widget/Logic/Test pattern. Load
+that folder through Slicer's additional module paths and open **Vessel Ray
+Segmentation Demo** to create a synthetic, editable three-point Markups curve.
+
+## Build and test
+
+[Extension CI](https://github.com/failed33/SlicerVesselRaySegmentation/actions/workflows/extension-ci.yml)
+runs on pushes to `main`, version tags, pull requests, manual dispatch and daily
+at 04:27 UTC. It uses standard public GitHub-hosted Ubuntu runners:
+
+| Target | Build | Tests |
+| --- | --- | --- |
+| Current stable Slicer | Scripted CPack archive | Module discovery, MRML geometry and actual Qt button action |
+| Current nightly Slicer | Scripted CPack archive | The same tests in the nightly application |
+| Published SlicerWeb runtime | Scripted package and upstream extension wheel | Install the wheel and run the same tests in headless Chrome |
+
+Artifacts include the small packages, test reports and upstream runtime provenance.
+They expire after seven days. Application downloads and runtime wheels are not
+uploaded or cached. Slicer downloads are checked against the size and SHA-512 in
+the official download metadata. SlicerWeb application sources are checked out at
+the exact unmodified commit recorded by its published runtime wheels.
+
+These jobs validate the Python packaging and real application integration. The
+demo checks do not validate ARG/ModelO inference, GPU behavior, the complete vessel
+workflow, Windows/macOS, or a native C++ build.
+
+See [CI build and validation](ci/README.md) for commands, the distinction between
+scripted packaging and an SDK build, and the remaining release validation.
 
 ## Development and publication
 
@@ -13,7 +45,7 @@ publication tests before pushing the tested default-branch commit or a protected
 version tag to GitHub. Feature branches stay in GitLab. GitHub receives ordinary
 Git commits with the same IDs, and published history is never force-pushed.
 
-Run the tests with Python 3.12 and Git installed:
+Run the infrastructure tests with Python 3.12+, Git and CMake 3.28+ installed:
 
 ```sh
 python3 -m unittest discover -s tests -v
