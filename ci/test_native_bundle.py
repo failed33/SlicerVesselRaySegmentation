@@ -60,6 +60,7 @@ def check_provider(assets: Path) -> dict:
             {"x": DeviceTensor(buffers[0], shape, np.float32)},
             outputs={"y": DeviceTensor(buffers[1], shape, np.float32)},
         )
+        assert "WebGpuExecutionProvider" in session.native_session.get_providers()
         session.submit()
         np.testing.assert_array_equal(host.read(buffers[1], np.float32).reshape(shape), values * 2)
         host.raise_errors()

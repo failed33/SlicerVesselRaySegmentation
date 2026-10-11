@@ -58,3 +58,8 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   runs server and worker containers with the runner's UID/GID. Label's image
   creates its named `monai` account using matching build arguments and gives it
   a writable native app directory. Keep cleanup part of the acceptance gate.
+
+- ORT's pinned WebGPU factory advertises only hardware GPU devices by default.
+  Hosted native CI explicitly sets `ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1` for
+  its Mesa check. Keep that opt-in confined to software acceptance and report
+  the actual adapter; it does not establish physical GPU execution.
