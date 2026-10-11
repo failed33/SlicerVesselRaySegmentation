@@ -59,7 +59,8 @@ jobs:
       - name: Build CPU ARG and MONAI Label containers
         run: |
           docker build -f deployment/monai/Dockerfile.workers --target arg -t vessel-arg:ci .
-          docker build -f deployment/monai/Dockerfile.workers --target label_arg -t vessel-label:ci .
+          docker build -f deployment/monai/Dockerfile.workers --target label_arg \
+            --build-arg MONAI_UID="$(id -u)" --build-arg MONAI_GID="$(id -g)" -t vessel-label:ci .
       - name: Accept built containers with the synthetic ONNX model
         run: |
           build/backend/installed/bin/python -I ci/test_backend_wheels.py --server-image vessel-label:ci --worker-image vessel-arg:ci --output build/backend/containers/report.json

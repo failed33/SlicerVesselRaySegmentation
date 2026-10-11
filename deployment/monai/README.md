@@ -61,7 +61,10 @@ provider lacks the required ConvTranspose3D support.
 
 When Label launches sibling containers, uploads, model cache and outputs must be
 visible at the same absolute paths in each container. Set `TMPDIR` beneath that
-shared mount. No Docker socket is needed for direct inference.
+shared mount. No Docker socket is needed for direct inference. For local bind mounts, build
+Label with `--build-arg MONAI_UID="$(id -u)" --build-arg MONAI_GID="$(id -g)"`
+and run it with `--user "$(id -u):$(id -g)"`. The named account and app directory
+then match the host user; container caches remain removable by that user.
 
 ## Validation
 

@@ -52,3 +52,9 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   Linux now builds Dawn from the exact pinned source, as ARM64 already did. Keep
   the runtime identity gate strict; a filename and checksum do not prove ABI
   identity. Binding-generation errors report expected and actual identities.
+
+- The first Docker acceptance executed inference successfully but left root-owned
+  cache directories in the runner's temporary mount, so cleanup failed. CI now
+  runs server and worker containers with the runner's UID/GID. Label's image
+  creates its named `monai` account using matching build arguments and gives it
+  a writable native app directory. Keep cleanup part of the acceptance gate.
