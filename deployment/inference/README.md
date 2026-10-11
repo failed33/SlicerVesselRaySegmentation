@@ -1,13 +1,21 @@
 # Vessel inference
 
 `vessel-inference` supplies shared ARG and ModelO inference. The base wheel has
-no dependencies. Optional extras select `arg`, `model-o`, `schemas`, `registry`,
-`label` or `dawn`. Python 3.12 and ONNX Runtime 1.30.0 are required for execution.
+no dependencies. The `numerical` extra selects only NumPy and SciPy and is tested
+on Python 3.12 and 3.14. Optional extras select `arg`, `model-o`, `schemas`,
+`registry`, `label` or `dawn`. Native inference and the MONAI Label environment
+use Python 3.12 and ONNX Runtime 1.30.0.
 
 ARG uses an exported ONNX graph, `plans.json` and `dataset.json`. It does not
 install Torch, nnU-Net or training code. ModelO consumes a CT and ordered ZYX
 polylines, generates ray inputs and executes through matched native Dawn assets.
 Models and patient data are supplied separately.
+
+Numerical modules import independently of native execution and server packages.
+`arg_inference.plans` is standard-library-only; importing ARG no longer imports
+its execution dependencies. ModelO still needs ONNX for graph preparation, so its
+native execution extra retains that dependency. The Label service retains its
+upstream runtime requirements; it is not part of the desktop bundle.
 
 ## Build and test
 
@@ -52,6 +60,14 @@ currently compiles Linux x86-64 and checks the bundle on Mesa software Vulkan.
 Physical GPU regression tests require `DAWN_ORT_NATIVE_ASSETS` and explicitly
 reject software and Null adapters.
 
-Native assets belong to desktop/server installations. They cannot execute in
-SlicerWeb's WebAssembly Python. Browser clients use a separately hosted service;
-that client integration is a later migration slice.
+The desktop packager combines the native asset ZIP, shared Python wheel, a private
+CPython installation and locked `arg`/`model-o` dependencies. It does not install
+packages into Slicer's interpreter. The host acceptance launches this packaged
+worker and verifies dependency origins after relocation.
+
+SlicerWeb uses the same numerical Python code in Pyodide. A separate
+[WASM build](wasm/README.md) compiles the patched ORT C++ WebGPU provider and its
+matching JavaScript bindings. The browser supplies WebGPU; desktop Dawn libraries
+are not loaded there. WGSL shaders remain unchanged pending the later PySlang
+migration. See the canonical [build and validation guide](../../docs/build-and-test.md)
+for packaging commands and proof boundaries.

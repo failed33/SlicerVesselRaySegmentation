@@ -32,6 +32,19 @@ def main() -> None:
         ).strip()
         if actual != pins[pin]:
             raise ValueError(f"{name} source identity mismatch: {actual}")
+    patches = sorted((source / "native/patches").glob("*.patch"))
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(build / "sources/ort"),
+            "apply",
+            "--reverse",
+            "--check",
+            *(str(patch) for patch in patches),
+        ],
+        check=True,
+    )
     suffix = {"linux": ".so", "darwin": ".dylib", "win32": ".dll"}[sys.platform]
     prefix = "" if sys.platform == "win32" else "lib"
     names = [
@@ -70,6 +83,9 @@ def main() -> None:
         "python": "3.12",
         "onnxruntime": "1.30.0",
         **pins,
+        "patches": {
+            patch.name: hashlib.sha256(patch.read_bytes()).hexdigest() for patch in patches
+        },
         "files": {
             str(path.relative_to(staging)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(staging.rglob("*"))

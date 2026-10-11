@@ -128,7 +128,8 @@ def predict_arg(
     input_path: Path, model_path: Path, output_path: Path, policy: ArgPolicy
 ) -> dict[str, object]:
     """Run the shared ONNX pipeline with one immutable artifact directory."""
-    from arg_inference import load_plan, predict_file
+    from arg_inference.plans import load_plan
+    from arg_inference.runtime import predict_file
 
     _validate_dataset(model_path / "dataset.json")
     plan = load_plan(model_path / "plans.json")

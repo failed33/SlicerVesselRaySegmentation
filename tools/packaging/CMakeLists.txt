@@ -21,6 +21,7 @@ add_custom_target(check_python ALL
 # Bytecode is checked, but omitted so artifacts work with each runtime's Python.
 install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/staged/" DESTINATION .
   PATTERN "__pycache__" EXCLUDE)
+include("${CMAKE_CURRENT_SOURCE_DIR}/RuntimeFiles.cmake")
 set(CPACK_GENERATOR ZIP)
 set(CPACK_PACKAGE_VERSION "0.0.0")
 set(CPACK_PACKAGE_FILE_NAME "VesselRaySegmentation-scripted-Slicer-${SLICER_VERSION}")

@@ -1,5 +1,5 @@
-"""Shared ARG ONNX image inference used by hosted and local callers."""
+"""ARG plan validation and optional native ONNX image inference.
 
-from arg_inference.runtime import Plan, load_plan, predict_file
-
-__all__ = ["Plan", "load_plan", "predict_file"]
+Import plan parsing from ``arg_inference.plans``. Select image inference explicitly
+from ``arg_inference.runtime`` so metadata imports do not load its dependencies.
+"""

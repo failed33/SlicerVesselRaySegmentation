@@ -2941,25 +2941,23 @@ requires-dist = [
     { name = "filelock", marker = "extra == 'registry'", specifier = ">=4,<5" },
     { name = "mlflow-skinny", marker = "extra == 'registry'", specifier = ">=3.16,<4" },
     { name = "monailabel", marker = "extra == 'label'", specifier = "==0.8.5" },
-    { name = "numpy", marker = "extra == 'arg-support'", specifier = ">=1.26,<3" },
     { name = "numpy", marker = "extra == 'dawn'", specifier = ">=1.26,<3" },
-    { name = "numpy", marker = "extra == 'model-o'", specifier = ">=1.26,<3" },
+    { name = "numpy", marker = "extra == 'numerical'", specifier = ">=1.26,<3" },
     { name = "onnx", marker = "extra == 'model-o'", specifier = ">=1.23,<2" },
     { name = "onnxruntime", marker = "extra == 'arg'", specifier = "==1.30.0" },
     { name = "onnxruntime", marker = "extra == 'dawn'", specifier = "==1.30.0" },
-    { name = "onnxruntime", marker = "extra == 'model-o'", specifier = "==1.30.0" },
     { name = "pydantic", marker = "extra == 'label'", specifier = ">=2.13,<3" },
-    { name = "pydantic", marker = "extra == 'model-o'", specifier = ">=2.13,<3" },
     { name = "pydantic", marker = "extra == 'schemas'", specifier = ">=2.13,<3" },
     { name = "pydicom", marker = "extra == 'label'", specifier = ">=2.4,<3" },
     { name = "scikit-image", marker = "extra == 'arg-support'", specifier = ">=0.26,<1" },
-    { name = "scipy", marker = "extra == 'arg-support'", specifier = ">=1.13,<2" },
-    { name = "scipy", marker = "extra == 'model-o'", specifier = ">=1.13,<2" },
+    { name = "scipy", marker = "extra == 'numerical'", specifier = ">=1.13,<2" },
     { name = "simpleitk", marker = "extra == 'arg-support'", specifier = ">=2.5,<3" },
     { name = "simpleitk", marker = "extra == 'model-o'", specifier = ">=2.5,<3" },
     { name = "vessel-inference", extras = ["arg-support"], marker = "extra == 'arg'" },
+    { name = "vessel-inference", extras = ["dawn", "numerical", "schemas"], marker = "extra == 'model-o'" },
+    { name = "vessel-inference", extras = ["numerical"], marker = "extra == 'arg-support'" },
 ]
-provides-extras = ["dawn", "arg-support", "arg", "model-o", "registry", "schemas", "label"]
+provides-extras = ["numerical", "dawn", "arg-support", "arg", "model-o", "registry", "schemas", "label"]
 
 [package.metadata.requires-dev]
 example = [

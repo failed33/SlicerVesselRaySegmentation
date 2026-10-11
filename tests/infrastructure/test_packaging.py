@@ -48,3 +48,30 @@ class ScriptedPackageTest(unittest.TestCase):
                 self.assertFalse((root / "retired.py").exists())
             with zipfile.ZipFile(archive) as package:
                 self.assertNotIn("retired.py", package.namelist())
+
+    def test_optional_runtime_payloads_preserve_package_and_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wheel = root / "inference.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("model_o_inference/__init__.py", '"""Shared Python."""\n')
+            runtime = root / "runtime"
+            runtime.mkdir()
+            (runtime / "manifest.json").write_text('{"python":"3.12.12"}\n')
+            executable = runtime / "python"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o755)
+            build_package(root / "package", "5.13", inference_wheel=wheel, desktop_runtime=runtime)
+            installed = root / "package/unpacked"
+            self.assertEqual(
+                (
+                    installed / "lib/Slicer-5.13/qt-scripted-modules/model_o_inference/__init__.py"
+                ).read_text(),
+                '"""Shared Python."""\n',
+            )
+            delivered = installed / "share/Slicer-5.13/VesselRaySegmentation/desktop-runtime/python"
+            self.assertEqual(delivered.read_bytes(), executable.read_bytes())
+            self.assertTrue(delivered.stat().st_mode & 0o111)
+            # Omitting an optional payload on rebuild must also remove it from CMake's cache.
+            build_package(root / "package", "5.13")
+            self.assertFalse(delivered.exists())

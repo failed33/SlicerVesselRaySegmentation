@@ -5,14 +5,16 @@ description = "Reusable ARG and ModelO inference with native Dawn buffer sharing
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE.txt"]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = []
 
 [project.optional-dependencies]
+# Shared array preparation also runs in SlicerWeb; native/server extras are separate.
+numerical = ["numpy>=1.26,<3", "scipy>=1.13,<2"]
 dawn = ["numpy>=1.26,<3", "onnxruntime==1.30.0"]
-arg-support = ["numpy>=1.26,<3", "scipy>=1.13,<2", "scikit-image>=0.26,<1", "SimpleITK>=2.5,<3"]
+arg-support = ["vessel-inference[numerical]", "scikit-image>=0.26,<1", "SimpleITK>=2.5,<3"]
 arg = ["vessel-inference[arg-support]", "onnxruntime==1.30.0"]
-model-o = ["numpy>=1.26,<3", "onnxruntime==1.30.0", "scipy>=1.13,<2", "SimpleITK>=2.5,<3", "onnx>=1.23,<2", "pydantic>=2.13,<3"]
+model-o = ["vessel-inference[dawn,numerical,schemas]", "SimpleITK>=2.5,<3", "onnx>=1.23,<2"]
 registry = ["mlflow-skinny>=3.16,<4", "filelock>=4,<5"]
 schemas = ["pydantic>=2.13,<3"]
 label = ["monailabel==0.8.5", "fastapi==0.142.2", "pydantic>=2.13,<3", "pydicom>=2.4,<3"]
@@ -36,6 +38,12 @@ native = [
 ]
 test = ["numpy>=1.26,<3", "onnxruntime==1.30.0", "onnx>=1.23,<2", "pytest>=8"]
 example = ["numpy>=1.26,<3", "onnxruntime==1.30.0", "scipy>=1.13,<2", "onnx>=1.23,<2"]
+
+# The lockfile serves the native/Label development environment. Shared numerical
+# wheels are also accepted independently on Python 3.14 without these profiles.
+[tool.uv]
+required-version = ">=0.12.23"
+environments = ["python_version == '3.12'"]
 
 [tool.pyrefly]
 python-version = "3.12"

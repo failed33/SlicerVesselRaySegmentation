@@ -56,10 +56,13 @@ does not prevent stable or browser results from being collected.
 The public repository uses `ubuntu-24.04` standard runners, read-only workflow
 permissions and no repository secrets. GitHub provides standard hosted runner
 minutes free for public repositories. Storage has a separate allowance, so retain
-only small extension artifacts and reports for seven days. These jobs do not
+extension artifacts and reports for seven days. The private desktop runtime is
+retained for one day and passed between jobs once, rather than uploaded again in
+each application archive. These jobs do not
 upload Slicer applications, the web application bundle, upstream runtime wheels
 or caches. No larger runners, private GitLab runner access or hosted GPU is needed
-for this demo. Chrome uses software rendering.
+for these tests. Chrome and native Vulkan can use explicitly reported software
+GPU adapters.
 
 The GitLab publication job pushes ordinary commits using the repository deploy
 key, which triggers GitHub's push workflow. Direct pull requests can also be tested
@@ -146,6 +149,68 @@ Hardware acceptance still requires the selected real model and actual target GPU
 Current macOS local checks use the previously built matching asset set; they do
 not claim a fresh macOS native build from this workflow. Windows and Linux ARM64
 native builds are configured in CMake but are not part of this first CI slice.
+
+The desktop job also builds an isolated Python 3.12.15 environment with locked
+`arg` and `model-o` extras. The bundle contains no Torch, nnU-Net, MONAI Label,
+MLflow or Kubernetes installation. ONNX remains necessary for ModelO graph
+preparation; SimpleITK remains necessary for native image I/O. The ORT core is
+the upstream 1.30.0 Python wheel. The source build compiles the patched WebGPU
+provider and Dawn bridge, not a replacement core wheel.
+
+The WASM job compiles that patched C++ WebGPU provider using Emscripten 4.0.23,
+SIMD and Asyncify. It builds matching JavaScript bindings from the same checkout,
+bundles upstream notices and records source, patch, toolchain and file hashes.
+It uses the exact canonical Dawn commit with ORT's required Dawn patches. This
+build is independent of SlicerWeb's prebuilt application runtime.
+
+Both runtime jobs package their payload through `RuntimeFiles.cmake`, shared
+with the standard Slicer SDK build. Desktop stable/nightly tests launch the
+extracted private Python worker. SlicerWeb tests install the extension wheel in
+both main and job-worker Pyodide contexts, verify the installed payload hashes,
+and invoke the compiled provider from a Python job. Pyodide supplies NumPy/SciPy;
+it does not install native ORT or desktop dependencies.
+
+Runtime acceptance executes shared Python ModelO preparation and four synthetic
+ConvTranspose3D models: both ARG kernel forms in FP32 and FP16. WGSL produces
+changed input buffers, ORT consumes them and writes caller-owned GPU outputs,
+and WGSL consumes those outputs. Each case runs three iterations across two
+session lifecycles with CPU fallback disabled and one final readback. FP16 is
+reported as skipped if the device lacks `shader-f16`; use `--require-f16` for
+hardware acceptance. This proves the runtime boundary, not full ModelO/ARG model
+parity, clinical accuracy, the complete workflow or a catalog-ready SDK release.
+
+Build a desktop package after compiling and bundling native assets:
+
+```sh
+uv build deployment/inference --out-dir build/backend/dist
+python tools/packaging/bundle_desktop.py --native-archive build/backend/native/dawn-ort-linux-x86_64.zip \
+  --wheel build/backend/dist/vessel_inference-0.1.0-py3-none-any.whl --output build/desktop-runtime
+python tools/packaging/build_scripted.py --slicer-version 5.10 \
+  --inference-wheel build/backend/dist/vessel_inference-0.1.0-py3-none-any.whl \
+  --desktop-runtime build/desktop-runtime/desktop-linux-x86_64 --output build/desktop-package
+build/desktop-runtime/desktop-linux-x86_64/python/bin/python3 tests/integration/runtime/fixtures.py --output build/runtime-fixtures
+```
+
+Use the desktop command above with `VRS_RUNTIME_FIXTURES="$PWD/build/runtime-fixtures"`.
+Software-only hosts also need `VRS_RUNTIME_ALLOW_SOFTWARE=1` and
+`ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1`. Select the native archive and bundle
+directory for the current platform; use the downloaded Slicer's reported version.
+
+For browser acceptance, build the [WASM component](../deployment/inference/wasm/README.md),
+then add `--inference-wheel build/backend/dist/vessel_inference-0.1.0-py3-none-any.whl`
+and `--wasm-runtime build/wasm/dist` to the scripted packaging command above.
+After creating the SlicerWeb wheel and building its web app, invoke:
+
+```sh
+node tests/integration/slicer/slicerweb.mjs build/web-runtime/SlicerWeb build/web-package \
+  --fixtures build/runtime-fixtures --allow-software
+```
+
+The separate shared-Python matrix accepts installed wheels on Python 3.12 and
+3.14 with only NumPy/SciPy. Native/Label lockfiles remain scoped to Python 3.12
+because the Label dependency set requires NumPy below 2, while newer Python
+versions need newer numerical wheels. Existing WGSL resources remain packaged;
+the PySlang rewrite is deferred.
 
 Artifacts expire after seven days. Containers are built and tested locally on the
 runner; this workflow does not publish registry images or create a release.

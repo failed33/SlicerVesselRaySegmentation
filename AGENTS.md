@@ -37,6 +37,11 @@ Put downloads, extracted packages, virtual environments and reports under ignore
 
 ## Backend migration
 
+- SlicerWeb's `installWheel()` updates the main Python filesystem only. Its job
+  worker installs extension URLs from the application's startup configuration.
+  Runtime acceptance must configure the tested wheel before page startup, or
+  the main module can pass while the worker lacks the packaged application code.
+
 `deployment/inference` and `deployment/monai` are the public production backend.
 Keep research, trained weights, private runbooks and cluster settings internal.
 `deployment/migration-source.json` records the initial working-tree snapshot; it
@@ -76,3 +81,25 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   QtWebEngine is based on Chromium 87 and cannot provide modern WebGPU. A shared
   WASM component needs a tested GPU host on desktop; a Pyodide side-module wheel
   cannot be imported by native CPython.
+
+- The application remains Python. Compile ORT/Dawn for native desktop and ORT's
+  C++ WebGPU provider to WASM for SlicerWeb; keep preprocessing, orchestration and
+  stitching in shared Python packages. WGSL remains the shader source for this
+  rollout. The planned PySlang migration is separate work.
+
+- Python metadata and runtime dependency support are different boundaries.
+  Shared numerical code supports Python 3.14 in Pyodide, but the native/Label
+  developer environments remain Python 3.12. Label's numpymaxflow needs NumPy 1,
+  while newer ONNX/ml-dtypes selections on Python 3.13+ need NumPy 2. Keep the
+  numerical and server dependency selections separate instead of forcing one
+  incompatible environment.
+
+- ORT's pinned Dawn release tag resolves to a different commit than the native
+  asset pin, despite sharing the release name. The WASM builder must override
+  Dawn with the exact canonical source commit and record its actual identity.
+  Do not infer a source commit from the release label.
+
+- ZIP extraction does not restore executable permissions automatically. The
+  scripted packager restores CPack's Unix mode bits so the bundled private
+  Python remains executable after extraction. Managed Python's internal
+  symlinks are materialized before packaging.

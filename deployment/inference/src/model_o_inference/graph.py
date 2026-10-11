@@ -6,11 +6,13 @@ Changes are held in memory. The trained artifact is never overwritten.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import onnx
-from dawn_ort import DawnHost, GpuSession
 from onnx import helper, inliner
+
+if TYPE_CHECKING:
+    from dawn_ort import DawnHost, GpuSession
 
 
 def prepare_model_o(path: str, n_rays: int | None) -> bytes:
@@ -30,6 +32,8 @@ def prepare_model_o(path: str, n_rays: int | None) -> bytes:
 
 
 def create_model_o_session(host: DawnHost, path: str, n_rays: int) -> GpuSession:
+    from dawn_ort import GpuSession
+
     return GpuSession(
         host,
         prepare_model_o(path, n_rays),

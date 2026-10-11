@@ -1,0 +1,20 @@
+diff --git a/js/web/script/build.ts b/js/web/script/build.ts
+--- a/js/web/script/build.ts
++++ b/js/web/script/build.ts
+@@ -623,6 +623,16 @@ async function main() {
+       format: 'iife',
+     });
+   }
++  // Build the standalone ESM with the same upstream WebGPU EP options. The
++  // complete prod matrix also requires unrelated CPU, JSEP and JSPI artifacts.
++  if (BUNDLE_MODE === 'perf' && USE_WEBGPU_EP) {
++    await buildOrt({
++      isProduction: true,
++      outputName: 'ort.webgpu',
++      format: 'esm',
++      define: { ...DEFAULT_DEFINE, 'BUILD_DEFS.DISABLE_WEBGL': 'true' },
++    });
++  }
+ 
+   if (BUNDLE_MODE === 'prod') {
+     // ort.all[.min].[m]js

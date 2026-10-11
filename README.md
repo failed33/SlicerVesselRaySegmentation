@@ -60,12 +60,25 @@ builds the two Python wheels from source distributions, accepts them outside the
 checkout, and repeats synthetic ARG inference in built CPU containers. A separate
 Linux job compiles the pinned Dawn host and patched ONNX Runtime provider, creates
 a versioned ZIP with hashes and upstream notices, then tests the extracted bundle
-on software Vulkan. These jobs use standard public GitHub-hosted runners.
+on software Vulkan. It bundles a private Python 3.12 runtime with locked inference
+dependencies and tests that package from stable and nightly Slicer. The ORT core
+comes from the pinned upstream wheel; the patched native provider and host bridge
+are compiled separately.
+
+A second source build compiles ORT's C++ WebGPU provider to WebAssembly with
+Emscripten. SlicerWeb receives that binary, matching JavaScript bindings and the
+shared Python package in its extension wheel. Its published Slicer runtime is
+reused. Both hosts run shared Python preparation and deterministic GPU fixtures;
+the browser selects its own WebGPU implementation. These jobs use standard public
+GitHub-hosted runners and explicitly identify software GPU adapters.
 
 See [inference packaging](deployment/inference/README.md) and
 [MONAI service packaging](deployment/monai/README.md) for build and run commands.
 The extension archive, server containers, Python wheels and native asset ZIP are
-separate deliverables. SlicerWeb cannot load desktop native libraries.
+separate deliverables. The desktop archive carries its private dependencies;
+SlicerWeb uses Pyodide's NumPy/SciPy and the compiled WASM component. Application
+code remains Python. WGSL remains in use; the proposed PySlang migration is later
+work.
 
 `deployment/migration-source.json` records the selected initial source snapshot.
 Research and private deployment files remain in the internal repository. The

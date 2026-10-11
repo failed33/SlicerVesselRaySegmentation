@@ -141,7 +141,8 @@ class BlockTrainingImports(importlib.abc.MetaPathFinder):
         return None
 
 sys.meta_path.insert(0, BlockTrainingImports())
-from arg_inference import load_plan, predict_file
+from arg_inference.plans import load_plan
+from arg_inference.runtime import predict_file
 model = Path(sys.argv[2])
 result = predict_file(Path(sys.argv[1]), Path(sys.argv[3]), model / "model.onnx", load_plan(model / "plans.json"), device="cpu")
 assert result["inference_runtime"] == "onnxruntime"
