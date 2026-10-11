@@ -217,3 +217,53 @@ the PySlang rewrite is deferred.
 
 Artifacts expire after seven days. Containers are built and tested locally on the
 runner; this workflow does not publish registry images or create a release.
+
+## Slang shader feasibility
+
+Investigated on 2026-10-12. SlangPy 0.43.1 bundles Slang 2026.12, but its macOS
+ARM64 wheel sets `SLANG_RHI_ENABLE_WGPU=0`; requesting a WebGPU device failed.
+The inspected [upstream build configuration](https://github.com/shader-slang/slangpy/blob/ce68ef8d2079769d29c4234290ca326ff301ea8e/external/CMakeLists.txt)
+also disables that backend explicitly, so a source build needs a configuration
+change before testing WebGPU.
+
+The [j8asic fork and upstream PR #787](https://github.com/shader-slang/slangpy/pull/787)
+add browser WebGPU support to the C++ SGL library. At inspected revision
+`d5fa8c5ccb88db86bab9012a28ad8cb4f6b292b7`, its Emscripten configuration explicitly
+rejects `SGL_BUILD_PYTHON=ON`. It does not supply the SlangPy Python extension
+needed by a SlicerWeb Pyodide worker. Its browser device tests are also separate
+from its Node.js CI tests, which skip GPU devices.
+
+[SlangPy PR #1090](https://github.com/shader-slang/slangpy/pull/1090) added native
+buffer imports after the inspected wheel release. However, the inspected
+[Slang-RHI WebGPU device implementation](https://github.com/shader-slang/slang-rhi/blob/242091b9bee857c46b1a70415afc35f2879853e4/src/wgpu/wgpu-device.cpp)
+creates a new device, does not adopt `existingDeviceHandles`, and returns
+`SLANG_E_NOT_IMPLEMENTED` for device-handle export. Its native backend loads a
+separate Dawn library beside Slang-RHI. Runtime integration would therefore need
+device interop changes, matching Dawn headers/library, and Python/Pyodide
+packaging work. Importing a buffer handle cannot make a buffer usable on another
+device.
+
+The recommended migration is typed `.slang` source compiled during packaging
+into WGSL plus reflected resource bindings. Python keeps orchestration; the
+existing native Dawn host and browser WebGPU host keep device and buffer
+ownership. The compiler is a build dependency. SlangPy and Slang-RHI would not
+be required in the installed application. WebGPU still consumes generated WGSL;
+the migration removes hand-written shader strings and derives binding metadata
+from the compiler. [SlangWebGPU](https://github.com/eliemichel/SlangWebGPU) provides
+an existing native/browser example of Slang compilation and reflected bindings.
+
+A local feasibility probe compiled typed producer/consumer shaders with Slang
+2026.12 from the isolated SlangPy wheel and substituted their generated WGSL into
+the existing runtime fixtures. Native Dawn/Metal and a real SlicerWeb Python job
+worker each passed eight FP32/FP16 cases across 24 changed-input inference
+executions. CPU fallback was disabled and caller-owned GPU outputs were retained.
+Native values exactly matched the original WGSL fixture results. Evidence lives
+under ignored `build/shader-research/`, including `compiler.json`,
+`native-metal.json` and `web-acceptance/results/slicerweb.json`.
+
+This probe validates the compilation and shared-buffer boundary. It does not
+port the production ModelO ray shader, validate a SlangPy WebGPU runtime, rerun
+stable/nightly desktop Slicer, or establish full-model parity. The production
+port still needs tests of fixed-point rounding, packed bool/int64 outputs,
+volume boundaries, ray features and CT patch sampling against the numerical
+reference, followed by installed-package acceptance on all three hosts.

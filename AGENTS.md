@@ -87,6 +87,14 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   stitching in shared Python packages. WGSL remains the shader source for this
   rollout. The planned PySlang migration is separate work.
 
+- SlangPy's WebGPU enum does not establish backend availability. The inspected
+  0.43.1 macOS ARM64 wheel has `SLANG_RHI_ENABLE_WGPU=0`. The browser work in
+  upstream PR #787 builds C++ SGL and explicitly rejects Python bindings under
+  Emscripten. Slang-RHI's inspected WebGPU backend also lacks device-handle
+  export and does not adopt `existingDeviceHandles`; native buffer import alone
+  cannot share our ORT device. See the Slang feasibility section in the build
+  guide before adding a runtime dependency or enabling a second Dawn library.
+
 - Python metadata and runtime dependency support are different boundaries.
   Shared numerical code supports Python 3.14 in Pyodide, but the native/Label
   developer environments remain Python 3.12. Label's numpymaxflow needs NumPy 1,
