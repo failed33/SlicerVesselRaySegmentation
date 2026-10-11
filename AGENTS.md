@@ -18,3 +18,5 @@ Slicer and SlicerWeb. Do not replace those gates with mocked imports.
 - macOS CPack's tar generator can add AppleDouble `._` metadata files even when the
   source manifest contains none. CI's portable scripted artifact uses ZIP. Keep
   the archive content assertion strict rather than ignoring unexpected files.
+- Alpine's CMake package does not include Make. The GitLab test image installs
+  both; otherwise even a scripted-only CMake project fails before packaging.

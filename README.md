@@ -45,7 +45,7 @@ publication tests before pushing the tested default-branch commit or a protected
 version tag to GitHub. Feature branches stay in GitLab. GitHub receives ordinary
 Git commits with the same IDs, and published history is never force-pushed.
 
-Run the infrastructure tests with Python 3.12+, Git and CMake 3.28+ installed:
+Run the infrastructure tests with Python 3.12+, Git, CMake 3.28+ and Make installed:
 
 ```sh
 python3 -m unittest discover -s tests -v

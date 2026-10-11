@@ -91,7 +91,7 @@ xvfb-run -a /path/to/Slicer --no-splash --no-main-window --testing \
   --python-script "$PWD/ci/test_desktop.py"
 ```
 
-Browser tests need Python 3.12+, CMake, Git, GitHub CLI, Node 22+ and Chrome:
+Browser tests need Python 3.12+, CMake, Make, Git, GitHub CLI, Node 22+ and Chrome:
 
 ```sh
 python3 ci/prepare_slicerweb.py --output build/web-runtime

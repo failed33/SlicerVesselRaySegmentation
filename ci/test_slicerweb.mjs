@@ -46,6 +46,11 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
   }, { wheel: index.extensions[0].wheel, code: testCode });
   report.slicerweb_revision = info.slicerweb.commit;
   report.browser = browser.version();
+  await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentationDemo")'));
+  await page.getByRole("button", { name: "Create demo curve", exact: true }).click();
+  await page.waitForFunction(() => window.slicerWeb.pyodide.runPython(
+    'slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLMarkupsCurveNode")') === 2);
+  report.browser_button_click = "passed";
   await writeFile(path.join(output, "results/slicerweb.json"), JSON.stringify(report, null, 2) + "\n");
   await page.screenshot({ path: path.join(output, "results/slicerweb.png") });
   console.log(JSON.stringify(report));
