@@ -35,14 +35,16 @@ jobs:
       PACKAGE_ROOT: ${{ github.workspace }}/build/desktop-package/unpacked
       TEST_REPORT: ${{ github.workspace }}/build/desktop-package/desktop.json
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Install Slicer runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libglu1-mesa libopengl0 libxrender1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libnss3 libasound2t64 libpulse0
+          # Slicer's documented Ubuntu 24.04 prerequisites, plus Xvfb and software GL.
+          sudo apt-get install -y xvfb libglu1-mesa libopengl0 libpulse-mainloop-glib0 \
+            libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0
       - name: Download current ${{ matrix.channel }} Slicer and verify SHA-512
         id: slicer
         run: python ci/download_slicer.py "${{ matrix.channel }}" --output build/slicer
@@ -58,7 +60,7 @@ jobs:
             --python-script "$GITHUB_WORKSPACE/ci/test_desktop.py" 2>&1 | tee build/desktop-package/slicer.log
       - name: Keep the package, test report and download provenance
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: desktop-linux-${{ matrix.channel }}
           retention-days: 7
@@ -76,11 +78,11 @@ jobs:
       SLICERWEB_WHEELS: ${{ github.workspace }}/build/web-runtime/wheels
       SLICERWEB_EXTENSIONS: ${{ github.workspace }}/build/web-package/wheels
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "22"
       - name: Download published runtime and its matching SlicerWeb source
@@ -101,7 +103,7 @@ jobs:
         run: node ci/test_slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package
       - name: Keep the wheel, browser report and runtime provenance
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: slicerweb
           retention-days: 7

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import zipfile
 from pathlib import Path
@@ -12,6 +13,10 @@ def build_package(output: Path, version: str) -> Path:
     source = Path(__file__).resolve().parent
     output = output.resolve()
     install = output / "install" / "ext" / "VesselRaySegmentation"
+    # Removed manifest entries must disappear from both delivery formats on rebuild.
+    for directory in (output / "staged", install, output / "unpacked"):
+        if directory.exists():
+            shutil.rmtree(directory)
     for command in (
         [
             "cmake",

@@ -17,9 +17,9 @@ def package(source: Path, build: Path, version: str) -> None:
     spec.loader.exec_module(builder)
     sources = build / "sources"
     sources.mkdir(exist_ok=True)
-    (sources / "VesselRaySegmentation").symlink_to(
-        Path(__file__).resolve().parents[1], target_is_directory=True
-    )
+    source_link = sources / "VesselRaySegmentation"
+    if not source_link.exists():
+        source_link.symlink_to(Path(__file__).resolve().parents[1], target_is_directory=True)
     builder.write_extension_wheels(
         SimpleNamespace(
             install=str(build / "install"),

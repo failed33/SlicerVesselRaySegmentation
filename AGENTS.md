@@ -20,3 +20,6 @@ Slicer and SlicerWeb. Do not replace those gates with mocked imports.
   the archive content assertion strict rather than ignoring unexpected files.
 - Alpine's CMake package does not include Make. The GitLab test image installs
   both; otherwise even a scripted-only CMake project fails before packaging.
+- The hosted Ubuntu image needs Slicer's documented Qt/XCB runtime prerequisites.
+  A partial hand-picked list omitted `libxcb-shape.so.0` and prevented both desktop
+  applications from starting. Keep the documented Ubuntu 24.04 dependency set.

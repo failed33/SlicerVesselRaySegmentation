@@ -31,3 +31,20 @@ class ScriptedPackageTest(unittest.TestCase):
                 output / "unpacked/lib/Slicer-5.13/qt-scripted-modules/VesselRaySegmentationDemo.py"
             )
             self.assertEqual(installed.read_bytes(), source.read_bytes())
+
+    def test_rebuild_discards_obsolete_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            build_package(output, "5.13")
+            roots = (
+                output / "staged",
+                output / "install/ext/VesselRaySegmentation",
+                output / "unpacked",
+            )
+            for root in roots:
+                (root / "retired.py").write_text("obsolete experiment")
+            archive = build_package(output, "5.13")
+            for root in roots:
+                self.assertFalse((root / "retired.py").exists())
+            with zipfile.ZipFile(archive) as package:
+                self.assertNotIn("retired.py", package.namelist())
