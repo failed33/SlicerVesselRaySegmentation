@@ -53,7 +53,8 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   browser = await chromium.launch({ channel: "chrome", headless: true,
-    args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
+    args: ["--ignore-gpu-blocklist",
+      ...(!runtimePackage || values["allow-software"] ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []),
       ...(values["allow-software"] ? ["--enable-unsafe-webgpu", "--use-webgpu-adapter=swiftshader"] : [])] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   if (runtimePackage) {
