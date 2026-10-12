@@ -26,6 +26,17 @@ env:
   MLFLOW_DISABLE_AGENT_HINT: "1"
 
 jobs:
+  shaders:
+    name: Slang shader regeneration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python tools/packaging/compile_shaders.py --check
+
   shared-python:
     name: Shared Python / ${{ matrix.python }}
     runs-on: ubuntu-24.04

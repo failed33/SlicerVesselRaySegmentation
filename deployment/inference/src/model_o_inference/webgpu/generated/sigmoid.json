@@ -1,0 +1,130 @@
+{
+  "parameters": [
+    {
+      "name": "logits",
+      "binding": {
+        "kind": "descriptorTableSlot",
+        "index": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    },
+    {
+      "name": "probability",
+      "binding": {
+        "kind": "descriptorTableSlot",
+        "index": 1
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    },
+    {
+      "name": "invalid",
+      "binding": {
+        "kind": "descriptorTableSlot",
+        "index": 2
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "uint32"
+        }
+      }
+    }
+  ],
+  "entryPoints": [
+    {
+      "name": "main",
+      "stage": "compute",
+      "parameters": [
+        {
+          "name": "id",
+          "semanticName": "SV_DISPATCHTHREADID",
+          "type": {
+            "kind": "vector",
+            "elementCount": 3,
+            "elementType": {
+              "kind": "scalar",
+              "scalarType": "uint32"
+            }
+          }
+        }
+      ],
+      "threadGroupSize": [
+        64,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "name": "logits",
+          "binding": {
+            "kind": "descriptorTableSlot",
+            "index": 0,
+            "used": 1
+          }
+        },
+        {
+          "name": "probability",
+          "binding": {
+            "kind": "descriptorTableSlot",
+            "index": 1,
+            "used": 1
+          }
+        },
+        {
+          "name": "invalid",
+          "binding": {
+            "kind": "descriptorTableSlot",
+            "index": 2,
+            "used": 1
+          }
+        }
+      ]
+    }
+  ],
+  "bindlessSpaceIndex": 1,
+  "build": {
+    "compiler": "2026.12",
+    "flags": [
+      "-target",
+      "wgsl",
+      "-entry",
+      "main",
+      "-stage",
+      "compute",
+      "-fp-mode",
+      "precise",
+      "-DPATCH_SIZE=48",
+      "-DRAY_LENGTH=120",
+      "-DFEATURE_COUNT=7",
+      "-DFIXED_POINT_SCALE=65536",
+      "-DWORKGROUP_SIZE=64"
+    ],
+    "constants": {
+      "PATCH_SIZE": 48,
+      "RAY_LENGTH": 120,
+      "FEATURE_COUNT": 7,
+      "FIXED_POINT_SCALE": 65536,
+      "WORKGROUP_SIZE": 64
+    },
+    "source_sha256": "eae857baa38485e96004fa8f55985c27ec442c4a79cd7bcfc3011bb44d779bab",
+    "wgsl_sha256": "ef08ac37ea77020e40226b940b679fbda819ac540663f1c4ee1241ba5cd37525"
+  }
+}

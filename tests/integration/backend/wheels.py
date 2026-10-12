@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
-import importlib.resources
 import importlib.util
 import json
 import os
@@ -41,10 +40,10 @@ def check_installed_packages() -> dict[str, str]:
         path = Path(spec.origin).resolve()
         assert path.is_relative_to(Path(sys.prefix).resolve()), (name, path, sys.prefix)
         locations[name] = str(path.relative_to(sys.prefix))
-    shader = importlib.resources.files("model_o_inference").joinpath(
-        "webgpu/model_o_patch_inputs.wgsl"
-    )
-    assert "@compute" in shader.read_text()
+    from model_o_inference.shaders import load_shader
+
+    for name in ("patch_inputs", "sigmoid"):
+        assert "@compute" in load_shader(name).code
     return locations
 
 

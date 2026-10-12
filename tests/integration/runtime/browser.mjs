@@ -1,5 +1,6 @@
 // GPU adapter called from Python inside the SlicerWeb job worker.
 import * as ort from "./ort.webgpu.min.mjs";
+import { runModelO } from "./model_o.mjs";
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -16,19 +17,20 @@ async function sha256(bytes) {
     .map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-function kernel(device, code, entryPoint, buffers) {
+function kernel(device, code, entryPoint, buffers, workgroupSize = 64) {
   const pipeline = device.createComputePipeline({ layout: "auto", compute: {
     module: device.createShaderModule({ code }), entryPoint,
   } });
   const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0),
-    entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })),
+    entries: buffers.map((item, index) => ({ binding: item.binding ?? index,
+      resource: { buffer: item.buffer ?? item } })),
   });
   return (elements) => {
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginComputePass();
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group);
-    pass.dispatchWorkgroups(Math.ceil(elements / 64));
+    pass.dispatchWorkgroups(Math.ceil(elements / workgroupSize));
     pass.end();
     device.queue.submit([encoder.finish()]);
   };
@@ -124,7 +126,8 @@ export async function run(optionsJson = "{}") {
   check(options.allow_software || !software, "Software adapter requires --allow-software");
   const f16 = adapter.features.has("shader-f16");
   check(f16 || !options.require_f16, "Adapter lacks shader-f16");
-  const device = await adapter.requestDevice({ requiredFeatures: f16 ? ["shader-f16"] : [] });
+  const device = await adapter.requestDevice({ requiredFeatures: f16 ? ["shader-f16"] : [],
+    requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
   // Observe these JavaScript calls only; mapAsync and provider-internal transfers are not counted.
   const counters = { waits: 0, inputWrites: 0, inputs: new Set() };
   const wait = device.queue.onSubmittedWorkDone.bind(device.queue);
@@ -158,7 +161,8 @@ export async function run(optionsJson = "{}") {
         readbacks: "The test's explicit final audit-buffer readback only; excludes provider-internal readbacks.",
       },
       adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device,
-        description: info.description, is_fallback: fallback, software }, cases: results });
+        description: info.description, is_fallback: fallback, software }, cases: results,
+      model_o_shaders: await runModelO(device, new URL("model_o/", import.meta.url), options.model_o_shaders, kernel, ort) });
   } finally {
     await device.queue.onSubmittedWorkDone();
     device.destroy();

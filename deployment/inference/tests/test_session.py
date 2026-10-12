@@ -58,6 +58,8 @@ def setup(monkeypatch):
     submit = Mock()
     monkeypatch.setattr(backend, "run", submit)
     session = backend.GpuSession(host, Path("arithmetic.onnx"))
+    host._wait_for_completion.assert_called_once()
+    host._wait_for_completion.reset_mock()
     refs = []
     tensors = {}
     for number, (name, (shape, dtype)) in enumerate(SPECS.items(), start=1):
@@ -223,9 +225,7 @@ def test_model_and_provider_choices_are_forwarded_without_preparation(monkeypatc
     create = Mock()
     monkeypatch.setattr(backend, "create_session", create)
     source = b"caller-supplied-model"
-    backend.GpuSession(
-        object.__new__(DawnHost), source, provider_options={"preferredLayout": "NHWC"}
-    )
+    backend.GpuSession(Mock(spec=DawnHost), source, provider_options={"preferredLayout": "NHWC"})
     assert create.call_args.args[1] is source
     assert create.call_args.kwargs["preferredLayout"] == "NHWC"
     assert "enableInt64" not in create.call_args.kwargs
@@ -238,11 +238,27 @@ def test_explicit_cpu_fallback_policy_is_preserved(monkeypatch, policy):
     options = backend.ort.SessionOptions()
     if policy is not None:
         options.add_session_config_entry("session.disable_cpu_ep_fallback", policy)
-    backend.GpuSession(object.__new__(DawnHost), b"model", options=options)
+    backend.GpuSession(Mock(spec=DawnHost), b"model", options=options)
     forwarded = create.call_args.kwargs["options"]
     assert forwarded.get_session_config_entry("session.disable_cpu_ep_fallback") == (
         "1" if policy is None else policy
     )
+
+
+def test_initialization_completion_precedes_exposing_the_native_session(monkeypatch):
+    events = []
+    native = Mock()
+    host = Mock(spec=DawnHost)
+    host.sync.side_effect = lambda: events.append("complete")
+
+    def create(*_args, **_kwargs):
+        events.append("initialize")
+        return native
+
+    monkeypatch.setattr(backend, "create_session", create)
+    session = backend.GpuSession(host, b"model")
+    assert session.native_session is native
+    assert events == ["initialize", "complete"]
 
 
 @pytest.mark.parametrize("key", ["deviceId", "preserveDevice", "enableGraphCapture"])

@@ -19,6 +19,7 @@ import onnxruntime as ort
 from application import application_summary
 from dawn_ort import DawnHost, DeviceTensor, GpuSession
 from dawn_ort.platforms import platform_config
+from model_o import run_native as run_model_o
 
 
 def adapter_info(host: DawnHost, allow_software: bool) -> dict[str, object]:
@@ -118,6 +119,7 @@ def run_case(host: DawnHost, fixtures: Path, spec: dict[str, Any]) -> dict[str, 
 def run(
     fixtures: Path, assets: Path, *, allow_software: bool, require_f16: bool
 ) -> dict[str, object]:
+    fixtures, assets = fixtures.resolve(), assets.resolve()
     if allow_software:
         os.environ["ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER"] = "1"
     cases = json.loads((fixtures / "cases.json").read_text())
@@ -158,6 +160,7 @@ def run(
                 "readbacks": "DawnHost Python read counter only; excludes ORT/Dawn internals.",
             },
             "application": application_summary(),
+            "model_o_shaders": run_model_o(host, fixtures / "model_o"),
             "cases": results,
         }
 

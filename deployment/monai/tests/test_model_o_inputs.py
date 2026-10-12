@@ -44,8 +44,11 @@ class _Host:
         assert not buffer.closed
         self.writes.append((buffer, np.array(values, copy=True)))
 
-    def kernel(self, _source: str, buffers: list[Buffer]) -> Kernel:
-        assert all(not buffer.closed for buffer in buffers)
+    def kernel(
+        self, _source: str, buffers: dict[int, Buffer], *, entry_point: str = "main"
+    ) -> Kernel:
+        assert entry_point == "main"
+        assert all(not buffer.closed for buffer in buffers.values())
         if self.fail_kernel:
             raise RuntimeError("kernel compilation failed")
         kernel = _Kernel()
@@ -72,9 +75,9 @@ def test_capacity_builders_borrow_one_request_ct_upload_and_never_close_it() -> 
     host.write(ct_buffer, first.volume)
     for case in (first, _case(4)):
         builder = DawnPatchInputs(cast(DawnHost, host), case, ct_buffer=ct_buffer, initialize=False)
-        assert builder.storage[1] is ct_buffer
+        assert builder.storage["volume_zyx"] is ct_buffer
         assert host.kernels[-1].dispatches == []
-        assert not any(buffer is builder.storage[2] for buffer, _values in host.writes)
+        assert not any(buffer is builder.storage["ray_geometry"] for buffer, _values in host.writes)
         builder.write_geometry(case.packed_geometry)
         builder.generate(case.center, case.h0)
         assert len(host.kernels[-1].dispatches) == 1
@@ -142,7 +145,8 @@ def test_direct_packed_case_preserves_q16_bits_and_uploads_without_quantization(
     builder.write_geometry(changed)
     np.testing.assert_array_equal(host.writes[-1][1], changed)
     builder.generate(case.center, case.h0)
-    np.testing.assert_array_equal(host.writes[-1][1][:4], [2, 3, 4, 2])
+    config = host.writes[-1][1]
+    assert [config[name][0] for name in ("depth", "height", "width", "rayCount")] == [2, 3, 4, 2]
     builder.close()
 
 

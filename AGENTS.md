@@ -84,8 +84,8 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
 
 - The application remains Python. Compile ORT/Dawn for native desktop and ORT's
   C++ WebGPU provider to WASM for SlicerWeb; keep preprocessing, orchestration and
-  stitching in shared Python packages. WGSL remains the shader source for this
-  rollout. The planned PySlang migration is separate work.
+  stitching in shared Python packages. Slang is now the shader source; generated
+  WGSL/reflection are package resources verified by the pinned compiler in CI.
 
 - SlangPy's WebGPU enum does not establish backend availability. The inspected
   0.43.1 macOS ARM64 wheel has `SLANG_RHI_ENABLE_WGPU=0`. The browser work in
@@ -95,12 +95,34 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   cannot share our ORT device. See the Slang feasibility section in the build
   guide before adding a runtime dependency or enabling a second Dawn library.
 
-- ModelO's checked WGSL is currently rewritten at runtime from twelve bindings
-  into ten, with packed bool/int64 storage and separate dtype overrides. Do not
-  treat its source declarations as the executed buffer contract. A Slang port
-  must declare the final layout directly and preserve ONNX's packed bytes and
-  12-byte `(N,3)` rows; plain `float3` storage arrays have a 16-byte stride.
-  The concrete cleanup and GPU layout evidence are in the build guide.
+- ModelO now declares its final ten-buffer layout in Slang. Keep ONNX bool
+  bytes and int64 words explicit, and use three-scalar records for 12-byte
+  `(N,3)` rows. Do not replace them with padded float3 arrays or restore runtime
+  WGSL rewriting. Reflection supplies bindings and config offsets, not ONNX
+  semantic shapes/dtypes. See the build guide for regeneration and acceptance.
+
+- Flat-profile eta-squared is a known numerical defect in the existing feature
+  policy. Original WGSL and Slang produce identical values on the local Metal
+  fixture, but FP32 arithmetic can emit eta up to 1 where float64 yields zero.
+  The production fixture excludes only those flat-profile eta samples from CPU
+  parity and checks finite [0,1] bounds explicitly. Keep this exception visible;
+  resolving it needs dataset/training validation, not a relaxed global tolerance.
+
+- ORT resolves relative provider-library paths beneath its own C API directory.
+  Native acceptance canonicalizes asset paths before registering the library.
+
+- The pinned ORT browser API omitted forwarding `enableInt64` to its C++ WebGPU
+  provider. The WASM ESM patch adds the typed boolean and forwards it explicitly.
+  Keep the seven-input ONNX acceptance with CPU fallback disabled; the earlier
+  floating-point fixtures could not detect this missing ModelO requirement.
+
+- Native shared-device initialization needs a completion boundary. During the
+  Slang migration, repeated asynchronous ConvTranspose acceptance returned only
+  bias although the caller input buffer contained the correct values. Completing
+  the queue once after ORT initialization eliminated the observed failure;
+  `GpuSession` now does this before exposing the session. The provider's internal
+  cause remains unassigned. Keep this initialization barrier and the numerical
+  gate strict; per-inference submissions remain asynchronous.
 
 - Python metadata and runtime dependency support are different boundaries.
   Shared numerical code supports Python 3.14 in Pyodide, but the native/Label

@@ -125,17 +125,16 @@ class _GpuPatchInference:
     consumer: Kernel
     probability: Buffer
     invalid: Buffer
+    consumer_workgroups: int
 
     def submit(self, case: PackedRayCase, resources: ExitStack) -> _PatchReadback:
         import numpy as np
-
-        from .constants import PATCH_SIZE
 
         self.builder.write_geometry(case.packed_geometry)
         self.builder.generate(case.center, case.h0)
         self.host.write(self.invalid, np.zeros(1, dtype=np.uint32))
         self.session.submit()
-        self.consumer.dispatch((PATCH_SIZE**3 + 63) // 64)
+        self.consumer.dispatch(self.consumer_workgroups)
         # Queue both copies before the next patch reuses the output buffers.
         probability = self.host.stage_readback(self.probability)
         resources.callback(probability.close)
@@ -164,7 +163,7 @@ def _gpu_pipeline(
     from .constants import OUTPUT_NAME, PATCH_SIZE
     from .dawn_inputs import DawnPatchInputs
     from .graph import create_model_o_session
-    from .shaders import SIGMOID
+    from .shaders import load_shader
 
     logits = host.buffer(PATCH_SIZE**3 * np.dtype(np.float32).itemsize)
     resources.callback(logits.close)
@@ -174,7 +173,18 @@ def _gpu_pipeline(
     resources.callback(invalid.close)
     builder = DawnPatchInputs(host, case, ct_buffer=ct_buffer, initialize=False)
     resources.callback(builder.close)
-    consumer = host.kernel(SIGMOID, [logits, probability, invalid])
+    shader = load_shader("sigmoid")
+    consumer = host.kernel(
+        shader.code,
+        shader.bindings(
+            {
+                "logits": logits,
+                "probability": probability,
+                "invalid": invalid,
+            }
+        ),
+        entry_point=shader.entry_point,
+    )
     resources.callback(consumer.close)
     session = create_model_o_session(host, str(model_path), case.n_rays)
     resources.callback(session.close)
@@ -186,7 +196,9 @@ def _gpu_pipeline(
             )
         },
     )
-    return _GpuPatchInference(host, builder, session, consumer, probability, invalid)
+    return _GpuPatchInference(
+        host, builder, session, consumer, probability, invalid, shader.workgroups(PATCH_SIZE**3)
+    )
 
 
 def _upload_ct(resources: ExitStack, host: DawnHost, image: _Volume) -> Buffer:

@@ -67,9 +67,9 @@ import arg_inference
 from arg_inference.plans import Plan, load_plan
 from model_o_inference.constants import model_o_geometry
 from model_o_inference.geometry import RayGeometryConfig
-from model_o_inference.shaders import SHADER_PATH
+from model_o_inference.shaders import load_shader
 assert model_o_geometry().num_rays > 0
-assert SHADER_PATH.is_file()
+assert all(load_shader(name).code for name in ("patch_inputs", "sigmoid"))
 assert not {'numpy', 'scipy', 'onnxruntime', 'SimpleITK', 'pydantic', 'mlflow', 'torch'} & sys.modules.keys()
 """,
             str(_SOURCE),

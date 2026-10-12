@@ -28,6 +28,15 @@ PATCH_SIZE: Final[int] = 48
 STEP_SIZE_MM: Final[float] = 0.25
 MAX_TRAVEL_MM: Final[float] = 30.0
 RAY_LENGTH: Final[int] = 120
+FIXED_POINT_SCALE: Final[int] = 1 << 16
+FEATURE_COUNT: Final[int] = 7
+SHADER_CONSTANTS: Final[dict[str, int]] = {
+    "PATCH_SIZE": PATCH_SIZE,
+    "RAY_LENGTH": RAY_LENGTH,
+    "FEATURE_COUNT": FEATURE_COUNT,
+    "FIXED_POINT_SCALE": FIXED_POINT_SCALE,
+    "WORKGROUP_SIZE": 64,
+}
 SAMPLE_SPACING_MM: Final[float] = 1.0
 NUM_RAYS: Final[int] = 1024
 

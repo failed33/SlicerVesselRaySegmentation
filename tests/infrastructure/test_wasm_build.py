@@ -143,11 +143,10 @@ class WasmBuildTest(unittest.TestCase):
             source = root / "js/web/script/build.ts"
             source.parent.mkdir(parents=True)
             source.write_text(excerpt)
-            subprocess.run(["git", "apply", "--check", str(patch)], cwd=root, check=True)
+            command = ["git", "apply", "--include=js/web/script/build.ts", "--check", str(patch)]
+            subprocess.run(command, cwd=root, check=True)
             source.write_text(excerpt.replace("BUNDLE_MODE", "RENAMED_OPTION"))
-            rejected = subprocess.run(
-                ["git", "apply", "--check", str(patch)], cwd=root, capture_output=True
-            )
+            rejected = subprocess.run(command, cwd=root, capture_output=True)
             self.assertNotEqual(rejected.returncode, 0)
 
 

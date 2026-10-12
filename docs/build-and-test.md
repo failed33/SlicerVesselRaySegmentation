@@ -243,11 +243,11 @@ device interop changes, matching Dawn headers/library, and Python/Pyodide
 packaging work. Importing a buffer handle cannot make a buffer usable on another
 device.
 
-The recommended migration is typed `.slang` source compiled before packaging
+The production migration uses typed `.slang` source compiled before packaging
 into WGSL plus reflected resource bindings. Python keeps orchestration; the
 existing native Dawn host and browser WebGPU host keep device and buffer
-ownership. The compiler is a build dependency. SlangPy and Slang-RHI would not
-be required in the installed application. WebGPU still consumes generated WGSL;
+ownership. The compiler is a build dependency. SlangPy and Slang-RHI are not
+required in the installed application. WebGPU still consumes generated WGSL;
 the migration removes hand-written shader strings and derives binding metadata
 from the compiler. [SlangWebGPU](https://github.com/eliemichel/SlangWebGPU) provides
 an existing native/browser example of Slang compilation and reflected bindings.
@@ -261,116 +261,95 @@ Native values exactly matched the original WGSL fixture results. Evidence lives
 under ignored `build/shader-research/`, including `compiler.json`,
 `native-metal.json` and `web-acceptance/results/slicerweb.json`.
 
-This probe validates the compilation and shared-buffer boundary. It does not
-port the production ModelO ray shader, validate a SlangPy WebGPU runtime, rerun
-stable/nightly desktop Slicer, or establish full-model parity. The production
-port still needs tests of fixed-point rounding, packed bool/int64 outputs,
-volume boundaries, ray features and CT patch sampling against the numerical
-reference, followed by installed-package acceptance on all three hosts.
+### Production shader build and contract
 
-### Concrete ModelO cleanup
+The ModelO ray builder and sigmoid consumer are authored in
+`deployment/inference/src/model_o_inference/webgpu/patch_inputs.slang` and
+`sigmoid.slang`. Slang 2026.12 generates the WGSL and reflection resources in
+`webgpu/generated/`. Python does not rewrite shader source at runtime.
 
-The production source currently declares twelve buffers. `packed_shader()` and
-`_compact_bindings()` then rewrite its text into ten bindings, combine config
-and ray geometry buffers, change index storage to two words, and pack four mask
-bytes into each word. `DawnPatchInputs` separately overrides output dtypes by
-numeric binding. The declared source, host contract and executed program thus
-describe different layouts. The Slang port should declare the final layout
-directly and remove both source rewriting functions and the dtype overrides.
+Regenerate after editing either shader or the shared constants:
 
-| Owner | Responsibility after the port |
-| --- | --- |
-| Slang source | Ray sampling, features, sigmoid, final storage types and resource declarations |
-| Compiler reflection | Resource names, binding indices, entry point, thread group size and config field offsets |
-| Python tensor contract | ONNX input names, logical shapes, dtypes and required byte lengths |
-| Existing GPU hosts | Device and buffer lifetime, dispatch, ORT binding and completed readback |
-
-Reflection cannot infer that a `uint` mask buffer represents an ONNX bool tensor,
-or that two `uint` words represent one nonnegative int64 index. Keep those
-semantic declarations explicit in `shader_contract.py`, keyed by resource name.
-Use reflection to assemble the bindings from a name-to-buffer mapping, rather
-than duplicating numeric indices or relying on positional `zip` operations.
-Validate expected names and access modes and reject unsupported groups/layouts.
-Keep this adapter limited to the storage buffers used here; a general shader
-binding framework is unnecessary.
-
-A second local probe used the official Slang 2026.12 macOS ARM64 compiler CLI,
-including its working `-reflection-json` option. It declared ten resources,
-a 32-byte config record and a 28-byte ray geometry record. The config stores
-volume dimensions, ray count, integer patch corner and `h0`; the existing
-60-byte upload also carries spacing, oversampling and travel settings that the
-executed shader does not read. Fixed-point scale and training-locked dimensions
-belong to the compile-time constants, with a generated-values check against the
-Python constants.
-
-The probe passed two dispatches on real Dawn/Metal (Apple M4 Pro) and in a Chrome
-155 WebGPU worker using Apple's non-fallback Metal adapter. All seven output
-buffers matched the independent NumPy reference byte for byte. This includes
-negative Q16 half-way rounding, packed bool bytes, two-word int64 storage,
-28-byte input records and 12-byte `(N,3)` output rows. A three-scalar structure
-preserves the latter layout; `StructuredBuffer<float3>` would instead have a
-16-byte array stride under the [WGSL layout rules](https://www.w3.org/TR/WGSL/#alignment-and-size).
-The current 120-sample ray length lets each ray own complete four-byte mask
-words, avoiding cross-thread read/modify/write races. Preserve and assert that
-invariant when packing masks.
-
-Evidence is under ignored `build/shader-research/layout/`: `layout.slang`,
-generated WGSL/reflection, `native.json` and `browser.json`. This probe uses
-synthetic arithmetic to test layout and rounding. It does not compute the
-production ray features or exercise this layout inside a SlicerWeb Python job.
-The earlier SlicerWeb job probe above establishes the compiler/ORT shared-buffer
-boundary separately. The raw CLI reflection includes member offsets but does
-not expose every resource record stride explicitly; do not infer arbitrary
-structure/array strides from the final member's end offset. Restrict supported
-layouts and verify their exact byte representation with these GPU tests.
-
-### Source and packaging arrangement
-
-Keep the two shader sources and their generated resources together beneath the
-existing `src/model_o_inference/webgpu/` directory:
-
-```text
-webgpu/
-  patch_inputs.slang
-  sigmoid.slang
-  generated/
-    patch_inputs.wgsl
-    patch_inputs.json
-    sigmoid.wgsl
-    sigmoid.json
+```sh
+python tools/packaging/compile_shaders.py
+python tools/packaging/compile_shaders.py --check
 ```
 
-`shaders.py` becomes a resource loader. Keep the numerical tensor contract in
-`shader_contract.py` and orchestration in `dawn_inputs.py`. Extract shared Slang
-helpers only when both kernels actually need them. Keep the same native Dawn
-and browser WebGPU device shared with ORT, including borrowed CT buffer reuse.
+The tool downloads an official compiler archive pinned by platform and SHA-256
+into ignored `build/slang/`. Linux x86-64 and macOS ARM64 are supported build
+hosts. `--compiler /path/to/slangc` uses an existing 2026.12 compiler. Generation
+uses precise floating-point mode and records source/WGSL digests, compiler flags
+and the shared Python constants in the reflection JSON. CI regenerates on Linux
+and rejects stale checked resources. Ordinary source-distribution and wheel
+builds consume those resources without downloading or installing a compiler.
+SlangPy and Slang-RHI are not application dependencies.
 
-Use one `tools/packaging/compile_shaders.py` command invoking the official
-`slangc` CLI, pinned by release and platform archive checksum. Compile on the
-build host, including when the application target is WASM. Record compiler
-version, flags, source digest and the training constants with the generated
-metadata. Start with the verified 2026.12 compiler; upgrade it deliberately
-through the same tests as a source change. Do not add ctypes compiler bindings,
-SlangPy or Slang-RHI to the installed inference dependencies.
+The ray shader directly declares ten storage buffers, a 32-byte config record,
+28-byte HU/Q16 ray records, byte-packed bool masks and two-word nonnegative
+int64 indices. Three-scalar output records preserve ONNX's 12-byte `(N,3)` row
+stride; plain float3 arrays would have a 16-byte stride under the
+[WGSL layout rules](https://www.w3.org/TR/WGSL/#alignment-and-size). Each
+120-sample ray owns complete packed mask words. Regeneration and resource loading
+reject ray lengths not divisible by four.
 
-Check in generated WGSL/reflection as package resources and have a CI
-`--check` mode regenerate into a temporary directory and reject differences.
-Regeneration is mandatory in CI and when editing shaders, while ordinary
-`uv build` and source-distribution wheel builds consume the checked resources.
-No custom wheel build hook or
-compiler download is needed for those consumers. The current Hatch source
-inclusion already covers this resource directory; installed-wheel tests must
-check the new files and their matching digests.
+| Owner | Responsibility |
+| --- | --- |
+| Slang sources | Sampling, features, sigmoid and final GPU storage layout |
+| Reflection | Resource names and binding indices, workgroup size, config field offsets |
+| Python tensor contract | ONNX names, logical shapes, dtypes and byte lengths |
+| Existing GPU hosts | Shared device/buffer ownership, dispatch, ORT binding and readback |
 
-Implement in two steps: first move sigmoid and introduce compiler/resource
-checks, then port the ray shader and delete the WGSL rewriting path. Keep the
-old shader only as a temporary comparison fixture during that port. Require
-CPU-reference checks for all seven production outputs, volume exits, patch
-padding, interpolation and feature accumulation; retain the packed-layout and
-changed-input/lifetime regressions. Preserve accumulation order during the port
-and assess numerical changes from compiler optimizations separately. Then run
-installed-wheel stable Slicer,
-nightly Slicer and SlicerWeb acceptance with the shared ORT buffers. Extension
-packaging, shader compilation, numerical parity and execution inside each host
-are separate validation gates. The layout probe completes only the relevant
-layout checks, not the production migration or full-model acceptance.
+`shaders.py` loads and verifies resources. `shader_contract.py` retains semantic
+ONNX types because reflection cannot infer that uint storage holds bool bytes or
+int64 words. `dawn_inputs.py` binds buffers by reflected resource name and reuses
+the request's CT buffer. Config marshalling supports the explicit contiguous
+32-bit scalar record only; it rejects implicit layout changes rather than
+attempting a general-purpose Slang serializer. Native and browser dispatches
+use the reflected workgroup size.
+
+### Production shader acceptance
+
+`tests/integration/runtime/fixtures.py` generates the existing shared ORT cases
+and `model_o/` fixtures from an independent NumPy interpolation/statistics oracle.
+The native runner executes the installed Python package. SlicerWeb's Python job
+worker loads its installed shader resources and supplies them to the browser
+adapter, which runs the same fixtures on the same device as ORT.
+
+The four production cases exercise 65-ray workgroup tails, negative Q16 ties,
+zero-valid rays, volume exits, patch padding, constant and varying CT volumes,
+zero patch normalization, all seven ONNX input layouts, and repeated buffer
+reuse across changed configurations. A synthetic seven-input ONNX graph casts
+and reduces each actual shader output on the shared device, verifying ORT's
+interpretation of all seven layouts, including bool bytes and int64 words. CPU
+fallback is disabled and scalar outputs remain in caller-owned GPU buffers.
+The browser bridge sets `enableInt64: true`; the pinned ORT ESM patch forwards
+this option to the C++ provider, matching native ModelO's `enableInt64="1"`.
+Native acceptance also verifies that closing
+the builder preserves a borrowed CT buffer. Sigmoid tests check finite outputs,
+NaN and both infinities, including resetting the invalid flag for a later valid
+submission. These checks run inside the packaged stable/nightly desktop and
+SlicerWeb backend workflow alongside the existing FP32/FP16 ORT tests.
+
+Native `GpuSession` completes the queue once after ORT session initialization,
+which includes initializer uploads and GPU weight prepacking. This prevents the
+bias-only ConvTranspose result observed intermittently without that boundary on
+Metal. The underlying provider cause remains unassigned. Repeated inference and
+consumer dispatches still run without caller completion waits between them;
+acceptance counters measure that submission phase separately from initialization.
+
+There is one explicit legacy numerical exception. On a flat HU profile, FP32
+summation/division can create a tiny apparent variance and an eta-squared feature
+as high as 1, while the float64 oracle returns zero. The original WGSL and the
+Slang port produced byte-identical values for every output in the four local
+Metal comparison cases, including this defect. CPU parity checks exclude only
+eta at valid samples of flat profiles and require those values to remain finite
+in [0,1]. Report fields identify that exception; the remaining feature samples
+and all other tensors retain their normal tolerances. Fixing the statistic or
+changing the patch-exit feature policy requires coordinated dataset/training
+validation, rather than a silent migration change.
+
+Local migration evidence belongs under ignored `build/shader-migration/`,
+including `comparison.json`, `native-installed.json` and the SlicerWeb report.
+Shader compilation, numerical comparison, resource packaging and installed-host
+execution are separate gates. Synthetic fixtures establish these interfaces;
+they do not establish patient-level prediction quality or clinical equivalence.

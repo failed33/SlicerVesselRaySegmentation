@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from model_o_inference import runtime
 from model_o_inference.planning import PatchPlan
+from model_o_inference.shaders import load_shader
 
 
 class _Buffer:
@@ -83,7 +84,13 @@ def _pipeline(host: _Host, *, bad_logits: bool = False, bad_probability: bool = 
         native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"]),
     )
     return runtime._GpuPatchInference(
-        host, builder, session, SimpleNamespace(dispatch=dispatch), probability, invalid
+        host,
+        builder,
+        session,
+        SimpleNamespace(dispatch=dispatch),
+        probability,
+        invalid,
+        load_shader("sigmoid").workgroups(48**3),
     )
 
 

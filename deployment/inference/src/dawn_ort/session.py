@@ -17,6 +17,7 @@ from .tensors import DeviceTensor
 class GpuSession:
     """One ONNX session and reusable binding, with completion before release.
 
+    Initialization completes uploads/prepacking before caller shaders can run.
     Submissions and consumers use the host's ordered queue.
     """
 
@@ -55,6 +56,9 @@ class GpuSession:
             options=options,
             **settings,
         )
+        # ORT initialization queues initializer uploads and weight prepacking.
+        # Finish this phase before exposing the shared device to caller kernels.
+        host.sync()
         self._binding = None
         self._outputs: Mapping[str, DeviceTensor] = MappingProxyType({})
         self._resources = ExitStack()

@@ -123,6 +123,9 @@ def generate(output: Path) -> list[dict[str, object]]:
         for kernel in ((1, 2, 2), (2, 2, 2))
         for dtype in ("float32", "float16")
     ]
+    from model_o import generate as generate_model_o
+
+    generate_model_o(output / "model_o")
     (output / "cases.json").write_text(json.dumps(cases, indent=2) + "\n")
     return cases
 

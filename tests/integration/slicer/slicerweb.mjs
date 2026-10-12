@@ -30,7 +30,10 @@ if (values.fixtures) {
   for (const name of ["cases.json", ...cases.map((spec) => spec.model)]) {
     await cp(path.join(fixtures, name), path.join(staging, name));
   }
-  await cp(path.join(runtimeTests, "browser.mjs"), path.join(staging, "browser.mjs"));
+  for (const name of ["browser.mjs", "model_o.mjs"]) {
+    await cp(path.join(runtimeTests, name), path.join(staging, name));
+  }
+  await cp(path.join(fixtures, "model_o"), path.join(staging, "model_o"), { recursive: true });
   for (const directory of ["public", "dist/app"]) {
     await cp(staging, path.join(source, "web", directory, "runtime-test"), { recursive: true });
   }

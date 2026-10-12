@@ -7,12 +7,9 @@ language-specific float rounding cannot move valid samples between voxels.
 
 from __future__ import annotations
 
-from typing import Final
-
 import numpy as np
 
-FIXED_POINT_SCALE: Final[int] = 1 << 16
-"""Q16 scale used for canonical ray origin/step voxel coordinates."""
+from .constants import FIXED_POINT_SCALE
 
 
 def quantize_to_fixed(values: np.ndarray, scale: int = FIXED_POINT_SCALE) -> np.ndarray:

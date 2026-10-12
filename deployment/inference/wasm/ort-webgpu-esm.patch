@@ -20,3 +20,35 @@ diff --git a/js/web/script/build.ts b/js/web/script/build.ts
  
    if (BUNDLE_MODE === 'prod') {
      // ort.all[.min].[m]js
+diff --git a/js/common/lib/inference-session.ts b/js/common/lib/inference-session.ts
+--- a/js/common/lib/inference-session.ts
++++ b/js/common/lib/inference-session.ts
+@@ -253,6 +253,13 @@ export namespace InferenceSession {
+      */
+     preferredLayout?: 'NCHW' | 'NHWC';
+ 
++    /**
++     * Enable WebGPU kernels accepting int64 tensor storage.
++     *
++     * @default false
++     */
++    enableInt64?: boolean;
++
+     /**
+      * Specify a list of node names that should be executed on CPU even when WebGPU EP is used.
+      */
+diff --git a/js/web/lib/wasm/session-options.ts b/js/web/lib/wasm/session-options.ts
+--- a/js/web/lib/wasm/session-options.ts
++++ b/js/web/lib/wasm/session-options.ts
+@@ -125,6 +125,11 @@ const appendExecutionProviders = (
+               appendEpOption(epOptions, 'preferredLayout', webgpuOptions.preferredLayout, allocs);
+             }
+ 
++            // ModelO indices use int64 storage, which is opt-in in the C++ EP.
++            if (typeof webgpuOptions.enableInt64 === 'boolean') {
++              appendEpOption(epOptions, 'enableInt64', webgpuOptions.enableInt64 ? '1' : '0', allocs);
++            }
++
+             // set force CPU fallback nodes
+             if (webgpuOptions.forceCpuNodeNames) {
+               const names = Array.isArray(webgpuOptions.forceCpuNodeNames)

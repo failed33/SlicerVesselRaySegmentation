@@ -232,7 +232,9 @@ class DawnHost:
         descriptor = getattr(self.w, f"WGPU{kind}Descriptor")(**fields)
         return getattr(self.w, f"wgpuDeviceCreate{kind}")(self.device, ct.byref(descriptor))
 
-    def kernel(self, code: str, buffers: list[Buffer], *, entry_point: str = "main") -> Kernel:
+    def kernel(
+        self, code: str, buffers: list[Buffer] | dict[int, Buffer], *, entry_point: str = "main"
+    ) -> Kernel:
         w = self.w
         source = w.WGPUShaderSourceWGSL(
             chain=w.WGPUChainedStruct(sType=w.WGPUSType_ShaderSourceWGSL), code=self._view(code)
@@ -245,10 +247,11 @@ class DawnHost:
             compute=w.WGPUComputeState(module=shader, entryPoint=self._view(entry_point)),
         )
         layout = w.wgpuComputePipelineGetBindGroupLayout(pipeline, 0)
-        entries = (w.WGPUBindGroupEntry * len(buffers))(
+        bindings = dict(enumerate(buffers)) if isinstance(buffers, list) else buffers
+        entries = (w.WGPUBindGroupEntry * len(bindings))(
             *(
                 w.WGPUBindGroupEntry(binding=i, buffer=b.handle, size=b.allocated_size)
-                for i, b in enumerate(buffers)
+                for i, b in bindings.items()
             )
         )
         group = self._create("BindGroup", layout=layout, entryCount=len(buffers), entries=entries)

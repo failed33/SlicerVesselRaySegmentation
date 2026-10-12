@@ -1,22 +1,19 @@
-"""ModelO WGSL uniform layout and seven tensor shapes."""
-
-# TODO: replace with `SlangPy`
+"""ModelO's semantic ONNX tensor contract and reflected scalar config record."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 
 import numpy as np
 
-from .constants import MAX_TRAVEL_MM, PATCH_SIZE, RAY_LENGTH, STEP_SIZE_MM
-from .lattice import FIXED_POINT_SCALE
-
-_FEATURE_COUNT = 7
+from .constants import FEATURE_COUNT, PATCH_SIZE, RAY_LENGTH
+from .shaders import load_shader
 
 
 @dataclass(frozen=True)
 class OutputSpec:
-    binding: int
+    name: str
     dtype: np.dtype
     shape: tuple[int, ...]
 
@@ -25,43 +22,58 @@ class OutputSpec:
         return int(np.prod(self.shape, dtype=np.int64)) * self.dtype.itemsize
 
 
-def config_buffers(
-    *,
+@cache
+def config_dtype() -> np.dtype:
+    """Support the scalar config ABI, rejecting implicit padding/layout changes."""
+    parameter = next(
+        p for p in load_shader("patch_inputs").metadata["parameters"] if p["name"] == "config"
+    )
+    fields = parameter["type"]["resultType"]["fields"]
+    scalar_types = {"uint32": np.uint32, "int32": np.int32, "float32": np.float32}
+    for index, field in enumerate(fields):
+        if (
+            field["type"]["kind"] != "scalar"
+            or field["binding"]["size"] != 4
+            or field["binding"]["offset"] != index * 4
+        ):
+            raise ValueError("Config must remain contiguous 32-bit scalar fields")
+    return np.dtype(
+        {
+            "names": [f["name"] for f in fields],
+            "formats": [scalar_types[f["type"]["scalarType"]] for f in fields],
+            "offsets": [f["binding"]["offset"] for f in fields],
+            "itemsize": len(fields) * 4,
+        }
+    )
+
+
+def config_record(
     volume_shape: tuple[int, int, int],
     n_rays: int,
-    rays_oversample: int,
-    spacing_zyx: tuple[float, float, float],
     patch_h0: float,
     patch_corner_zyx: tuple[int, int, int],
-) -> tuple[np.ndarray, np.ndarray]:
-    cfg_u32 = np.array(
-        [*volume_shape, n_rays, int(rays_oversample), FIXED_POINT_SCALE],
-        dtype=np.uint32,
+) -> np.ndarray:
+    values: dict[str, int | float] = dict(
+        zip(("depth", "height", "width"), volume_shape, strict=True)
     )
-    cfg_f32 = np.array(
-        [
-            float(spacing_zyx[0]),
-            float(spacing_zyx[1]),
-            float(spacing_zyx[2]),
-            STEP_SIZE_MM,
-            MAX_TRAVEL_MM,
-            float(patch_h0),
-            float(patch_corner_zyx[0]),
-            float(patch_corner_zyx[1]),
-            float(patch_corner_zyx[2]),
-        ],
-        dtype=np.float32,
-    )
-    return cfg_u32, cfg_f32
+    values.update(dict(zip(("cornerZ", "cornerY", "cornerX"), patch_corner_zyx, strict=True)))
+    values.update(rayCount=n_rays, h0=patch_h0)
+    dtype = config_dtype()
+    if set(values) != set(dtype.names or ()):
+        raise ValueError("Shader config fields do not match the application contract")
+    result = np.zeros(1, dtype=dtype)
+    for name, value in values.items():
+        result[name] = value
+    return result
 
 
 def output_specs(n_rays: int) -> tuple[OutputSpec, ...]:
     return (
-        OutputSpec(5, np.dtype(np.float32), (n_rays, RAY_LENGTH, _FEATURE_COUNT)),
-        OutputSpec(6, np.dtype(np.uint32), (n_rays, RAY_LENGTH)),
-        OutputSpec(7, np.dtype(np.float32), (n_rays, 3)),
-        OutputSpec(8, np.dtype(np.float32), (n_rays, 3)),
-        OutputSpec(9, np.dtype(np.uint32), (n_rays, RAY_LENGTH)),
-        OutputSpec(10, np.dtype(np.float32), (n_rays, RAY_LENGTH)),
-        OutputSpec(11, np.dtype(np.float32), (1, PATCH_SIZE, PATCH_SIZE, PATCH_SIZE)),
+        OutputSpec("ray_features", np.dtype(np.float32), (n_rays, RAY_LENGTH, FEATURE_COUNT)),
+        OutputSpec("ray_mask", np.dtype(bool), (n_rays, RAY_LENGTH)),
+        OutputSpec("origin_zyx_norm", np.dtype(np.float32), (n_rays, 3)),
+        OutputSpec("direction_zyx_norm", np.dtype(np.float32), (n_rays, 3)),
+        OutputSpec("voxel_indices", np.dtype(np.int64), (n_rays, RAY_LENGTH)),
+        OutputSpec("ray_hu", np.dtype(np.float32), (n_rays, RAY_LENGTH)),
+        OutputSpec("ct_patch", np.dtype(np.float32), (1, PATCH_SIZE, PATCH_SIZE, PATCH_SIZE)),
     )
