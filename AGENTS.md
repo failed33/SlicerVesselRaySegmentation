@@ -95,6 +95,13 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   cannot share our ORT device. See the Slang feasibility section in the build
   guide before adding a runtime dependency or enabling a second Dawn library.
 
+- ModelO's checked WGSL is currently rewritten at runtime from twelve bindings
+  into ten, with packed bool/int64 storage and separate dtype overrides. Do not
+  treat its source declarations as the executed buffer contract. A Slang port
+  must declare the final layout directly and preserve ONNX's packed bytes and
+  12-byte `(N,3)` rows; plain `float3` storage arrays have a 16-byte stride.
+  The concrete cleanup and GPU layout evidence are in the build guide.
+
 - Python metadata and runtime dependency support are different boundaries.
   Shared numerical code supports Python 3.14 in Pyodide, but the native/Label
   developer environments remain Python 3.12. Label's numpymaxflow needs NumPy 1,
