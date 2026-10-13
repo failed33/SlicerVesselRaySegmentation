@@ -1,23 +1,19 @@
-# SlicerVesselRaySegmentation
+# SlicerVesselRaySegmentation - Publication WIP
 
-This repository contains the shared ARG/ModelO inference backend, MONAI Label
-service, publication infrastructure and a scripted module demo for a planned
-3D Slicer extension. The vessel workflow UI is still being migrated.
+This repository contains the ... inference backend, MONAI Label
+service, scripted module. Model files will be provided separately
 
-The planned workflow is ARG inference, disconnected-component removal, centerline
-generation and manual editing, then ModelO inference.
+The planned workflow is nnU-Net presegmentation of vessels → manual cleanup → centerline generation → ray casting and refinement of segmentation.
 
-The extension's CMake project is `VesselRaySegmentation`; the repository name has
-Slicer's conventional `Slicer` prefix. Its current module is
-`VesselRaySegmentationDemo`, following the Module/Widget/Logic/Test pattern. Load
-that folder through Slicer's additional module paths and open **Vessel Ray
-Segmentation Demo** to create a synthetic, editable three-point Markups curve.
+Another part of this repository is to provide the runtime for local fully WebGPU based and WASM ready ONNX based inference for the nnU-Net and other ray based model. We also want to provide the MONAI Label inference server, that can be hosted on the same machine with native GPU  acceleration, including scheduling on a kubernetes cluster and ROCm GPU (RX 6600, RX 7900XT), DGX Spark and HPC environment with NVIDIA A100 and H100. The setup was tested for all of these use cases (and I dont have a consumer NVIDIA card ...).
+
+The primary segmentation is based on TopBrain Challenge 2nd Place ARG Team and their model, which we finetuned on our internal and expanded dataset to not only include CoW anatomy, but also the full Head-Neck arterial vascular Anatomy.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `VesselRaySegmentationDemo/` | Slicer module, resources and in-application tests |
+| `VesselRaySegmentationDemo/` | Slicer module, will be replaced |
 | `deployment/inference/` | Installable ARG/ModelO runtime and pinned native build |
 | `deployment/monai/` | MONAI Label service, worker images and service tests |
 | `tools/packaging/` | Scripted archive, SlicerWeb wheel and native bundle builders |
