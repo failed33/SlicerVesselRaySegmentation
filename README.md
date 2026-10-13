@@ -9,6 +9,9 @@ Another part of this repository is to provide the runtime for local fully WebGPU
 
 The primary segmentation is based on TopBrain Challenge 2nd Place ARG Team and their model, which we finetuned on our internal and expanded dataset to not only include CoW anatomy, but also the full Head-Neck arterial vascular Anatomy.
 
+The rest is AI generated slop, as I haven't cleaned it up.
+---
+
 ## Repository layout
 
 | Path | Contents |
