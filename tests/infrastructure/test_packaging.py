@@ -15,20 +15,25 @@ class ScriptedPackageTest(unittest.TestCase):
             archive = build_package(output, "5.13")
             with zipfile.ZipFile(archive) as package:
                 files = {item.filename for item in package.infolist() if not item.is_dir()}
+            module_root = Path(__file__).resolve().parents[2] / "VesselRaySegmentation"
+            declared = {"VesselRaySegmentation.py", "Resources/Icons/VesselRaySegmentation.png"}
+            declared.update(
+                str(path.relative_to(module_root))
+                for path in (module_root / "VesselRaySegmentationLib").rglob("*.py")
+            )
             self.assertEqual(
                 files,
                 {
-                    "lib/Slicer-5.13/qt-scripted-modules/VesselRaySegmentationDemo.py",
-                    "lib/Slicer-5.13/qt-scripted-modules/Resources/Icons/VesselRaySegmentationDemo.png",
+                    *("lib/Slicer-5.13/qt-scripted-modules/" + name for name in declared),
                     "share/Slicer-5.13/VesselRaySegmentation/LICENSE.txt",
                 },
             )
             source = (
                 Path(__file__).resolve().parents[2]
-                / "VesselRaySegmentationDemo/VesselRaySegmentationDemo.py"
+                / "VesselRaySegmentation/VesselRaySegmentation.py"
             )
             installed = (
-                output / "unpacked/lib/Slicer-5.13/qt-scripted-modules/VesselRaySegmentationDemo.py"
+                output / "unpacked/lib/Slicer-5.13/qt-scripted-modules/VesselRaySegmentation.py"
             )
             self.assertEqual(installed.read_bytes(), source.read_bytes())
 

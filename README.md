@@ -3,7 +3,7 @@
 This repository contains the ... inference backend, MONAI Label
 service, scripted module. Model files will be provided separately
 
-The planned workflow is nnU-Net presegmentation of vessels → manual cleanup → centerline generation → ray casting and refinement of segmentation.
+The workflow is endpoint setup → ARG vessel inference → component/mass filtering and manual trimming → centerline generation and editing → ModelO inference.
 
 Another part of this repository is to provide the runtime for local fully WebGPU based and WASM ready ONNX based inference for the nnU-Net and other ray based model. We also want to provide the MONAI Label inference server, that can be hosted on the same machine with native GPU  acceleration, including scheduling on a kubernetes cluster and ROCm GPU (RX 6600, RX 7900XT), DGX Spark and HPC environment with NVIDIA A100 and H100. The setup was tested for all of these use cases (and I dont have a consumer NVIDIA card ...).
 
@@ -16,7 +16,7 @@ The rest is AI generated slop, as I haven't cleaned it up.
 
 | Path | Contents |
 | --- | --- |
-| `VesselRaySegmentationDemo/` | Slicer module, will be replaced |
+| `VesselRaySegmentation/` | Production Slicer workflow and scene/client helpers |
 | `deployment/inference/` | Installable ARG/ModelO runtime and pinned native build |
 | `deployment/monai/` | MONAI Label service, worker images and service tests |
 | `tools/packaging/` | Scripted archive, SlicerWeb wheel and native bundle builders |
@@ -45,9 +45,10 @@ uploaded or cached. Slicer downloads are checked against the size and SHA-512 in
 the official download metadata. SlicerWeb application sources are checked out at
 the exact unmodified commit recorded by its published runtime wheels.
 
-These jobs validate the Python packaging and real application integration. The
-demo checks do not validate ARG/ModelO inference, GPU behavior, the complete vessel
-workflow, Windows/macOS, or a native C++ build.
+These jobs validate packaging and real application integration with synthetic
+volumes, native segmentation cleanup and editable Markups. Backend CI separately
+checks compiled inference. Trained-model quality and patient workflow acceptance
+remain separate gates.
 
 See [build and validation](docs/build-and-test.md) for commands, the distinction
 between scripted packaging and an SDK build, and the remaining release validation.
@@ -76,13 +77,33 @@ See [inference packaging](deployment/inference/README.md) and
 The extension archive, server containers, Python wheels and native asset ZIP are
 separate deliverables. The desktop archive carries its private dependencies;
 SlicerWeb uses Pyodide's NumPy/SciPy and the compiled WASM component. Application
-code remains Python. WGSL remains in use; the proposed PySlang migration is later
-work.
+code remains Python. Typed Slang generates the packaged WGSL and reflection;
+ONNX graph preparation lowers normalization to centered axiswise FP32 standard
+operations without a Torch dependency in the application.
 
 `deployment/migration-source.json` records the selected initial source snapshot.
 Research and private deployment files remain in the internal repository. The
 synthetic fixture validates packaging and transport, not trained-model quality.
 Physical GPU, full workflow and extension-installation checks remain release gates.
+
+## Application workflow
+
+Configure one MONAI Label endpoint and refresh its model catalogue. The module
+uses the server's image and polyline input profiles to offer ARG and ModelO models.
+Choose the CT and run ARG. Create a separate cleanup segmentation, retain the
+wanted components by count and minimum physical volume, then use native Segment
+Editor tools for trimming. The original ARG prediction is retained.
+
+Automatic network extraction requires SlicerVMTK's ExtractCenterline module.
+Review and edit the resulting native Markups curves before ModelO. Curves can
+also be created manually or imported; the client reads their world coordinates
+and preserves continuous positions on the submitted CT grid.
+
+The current SlicerWeb runtime does not bundle VMTK. Its manual/imported-curve
+path remains available; automatic extraction is explicitly unavailable until
+that dependency is installed. Browser inference uses fetch and requires an
+endpoint accessible over HTTPS with CORS permission for the application's origin.
+Bearer tokens stay in the current widget and are not saved into scenes or settings.
 
 ## Development and publication
 

@@ -575,7 +575,7 @@
       "FIXED_POINT_SCALE": 65536,
       "WORKGROUP_SIZE": 64
     },
-    "source_sha256": "c218103a80509f0137a8a366f89dd605cff29d78e8dfaf4f7dcebb9888b1f4eb",
-    "wgsl_sha256": "cd95da33d7cd33792e2a8ea5152792753919dab5275770a7c9fe3d09173e2d15"
+    "source_sha256": "bf04e1422cc4b1e8a826e5d1940cc0a2534fb68099a806dd345fb382ae59d54f",
+    "wgsl_sha256": "5f1cbfbbe065fb99abac68268e0af2887ee30ef4c90806dde949271f68bdb589"
   }
 }

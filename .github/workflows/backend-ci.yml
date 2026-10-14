@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths: ["deployment/**", "tools/**", "tests/integration/**", "slicerweb-extension.json", "CMakeLists.txt", ".github/workflows/backend-ci.yml"]
+    paths: ["VesselRaySegmentation/**", "deployment/**", "tools/**", "tests/integration/**", "slicerweb-extension.json", "CMakeLists.txt", ".github/workflows/backend-ci.yml"]
   pull_request:
-    paths: ["deployment/**", "tools/**", "tests/integration/**", "slicerweb-extension.json", "CMakeLists.txt", ".github/workflows/backend-ci.yml"]
+    paths: ["VesselRaySegmentation/**", "deployment/**", "tools/**", "tests/integration/**", "slicerweb-extension.json", "CMakeLists.txt", ".github/workflows/backend-ci.yml"]
   workflow_dispatch:
 
 permissions:
@@ -92,13 +92,17 @@ jobs:
           uv pip install --python build/backend/installed/bin/python --no-deps --reinstall build/backend/dist/*.whl
       - name: Check backend formatting and imports
         run: |
-          build/backend/installed/bin/ruff check tools tests/integration deployment/inference deployment/monai
-          build/backend/installed/bin/ruff format --check tools tests/integration deployment/inference deployment/monai
+          build/backend/installed/bin/ruff check VesselRaySegmentation tools tests/integration deployment/inference deployment/monai
+          build/backend/installed/bin/ruff format --check VesselRaySegmentation tools tests/integration deployment/inference deployment/monai
       - name: Test packaged runtime asset integrity
-        run: python -m unittest discover -s tests/integration/runtime -v
+        run: build/backend/installed/bin/python -m unittest discover -s tests/integration/runtime -v
       - name: Test standalone backend behavior
         working-directory: deployment/monai
         run: ../../build/backend/installed/bin/python -m pytest -q tests --junitxml=../../build/backend/monai-tests.xml
+      - name: Test workflow transport against native MONAI Label
+        env:
+          VRS_TEST_ENDPOINT_PYTHON: ${{ github.workspace }}/build/backend/installed/bin/python
+        run: build/backend/installed/bin/python -m pytest -q VesselRaySegmentation/Testing/Python --junitxml=build/backend/workflow-tests.xml
       - name: Accept installed wheels outside the checkout
         run: build/backend/installed/bin/python -I tests/integration/backend/wheels.py --output build/backend/wheels.json
       - name: Build CPU ARG and MONAI Label containers
@@ -227,6 +231,7 @@ jobs:
       VRS_RUNTIME_FIXTURES: ${{ github.workspace }}/build/runtime-fixtures
       PACKAGE_ROOT: ${{ github.workspace }}/build/desktop-package/unpacked
       TEST_REPORT: ${{ github.workspace }}/build/desktop-package/desktop.json
+      VRS_TEST_ENDPOINT_PYTHON: ${{ github.workspace }}/build/workflow-endpoint/bin/python
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -243,6 +248,8 @@ jobs:
             libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0 \
             libvulkan1 mesa-vulkan-drivers libegl1 libxext6
           python -m pip install uv==0.12.23
+      - name: Prepare the test-only MONAI endpoint environment
+        run: UV_PROJECT_ENVIRONMENT="$PWD/build/workflow-endpoint" uv sync --project deployment/monai --frozen --group dev
       - name: Download and verify Slicer
         id: slicer
         run: python tools/runtimes/download_slicer.py "${{ matrix.channel }}" --output build/slicer
@@ -299,6 +306,7 @@ jobs:
           uv sync --project deployment/inference --frozen --group test
           deployment/inference/.venv/bin/python tests/integration/runtime/fixtures.py --output build/runtime-fixtures
           python tools/runtimes/prepare_slicerweb.py --output build/web-runtime
+          UV_PROJECT_ENVIRONMENT="$PWD/build/workflow-endpoint" uv sync --project deployment/monai --frozen --group dev
       - name: Package shared Python and the compiled WASM component
         run: |
           python tools/packaging/build_scripted.py --slicer-version "${{ steps.web.outputs.slicer_version }}" \
@@ -312,7 +320,7 @@ jobs:
           npm ci
           npm run build:app
       - name: Test compiled GPU inference from Python in SlicerWeb
-        run: node tests/integration/slicer/slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package --fixtures build/runtime-fixtures --allow-software
+        run: node tests/integration/slicer/slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package --fixtures build/runtime-fixtures --allow-software --endpoint-python build/workflow-endpoint/bin/python
       - name: Keep browser acceptance reports
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

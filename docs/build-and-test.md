@@ -19,7 +19,7 @@ cmake --build build/sdk --target package
 ```
 
 The free-runner jobs use a separate, scripted-only CMake/CPack project in `tools/packaging/`.
-Both builds read `VesselRaySegmentationDemo/ModuleFiles.cmake`, so file selection
+Both builds read `VesselRaySegmentation/ModuleFiles.cmake`, so file selection
 does not drift between their packaging rules. The CI project compiles Python
 bytecode as a syntax check, packages the scripts, resources and license, then
 extracts the archive for application tests. Bytecode is omitted from the archive
@@ -29,21 +29,28 @@ This is a real scripted archive build, but it does not exercise the root
 `find_package(Slicer)` configuration, Slicer CPack metadata or native compilation.
 The archives are CI artifacts, not catalog-ready extension releases. Slicer's
 extension build infrastructure must validate the standard SDK build and produce
-the platform packages when the extension is submitted. Retained C++ components
-would also need their own SDK build before a release.
+the platform packages when the extension is submitted. The retired VPT C++ application is not included in this build.
 
 ## What the jobs prove
 
 - Desktop stable and nightly use current official Linux application packages,
-  not mocked Slicer imports. They load the unpacked package through additional
-  module paths, assert the module was imported from it, check a real MRML curve's
-  control points and length, construct the module widget through Slicer's module
-  manager and click its button to check the scene mutation.
+  not mocked Slicer imports. They import the extracted module, construct its
+  five-stage widget, and exercise real MRML volumes, segmentations and curves.
 - SlicerWeb uses the current `runtime-latest` wheels from
-  `lassoan/slicerweb-app`. The runtime's `build-info.json` selects the exact
-  matching `lassoan/SlicerWeb` source commit. Its own wheel builder packages the
-  CMake install tree. Chrome loads the built web application, installs the wheel
-  through SlicerWeb's runtime and runs the identical module tests.
+  `lassoan/slicerweb-app`. The runtime's `build-info.json` selects the matching
+  `lassoan/SlicerWeb` source commit. Its wheel builder packages the CMake install
+  tree. Chrome installs that wheel and runs the same MRML/module checks.
+- Backend application jobs also start a temporary native MONAI Label endpoint.
+  The actual widget discovers models, uploads one CT, runs input-dependent ARG,
+  filters and trims a separate segmentation, submits a manual curve to ModelO,
+  edits that curve and verifies the changed mask. They close a scene during a
+  pending response and reject stale result imports. Browser requests cross the
+  real fetch/CORS boundary. Endpoint dependencies live in a separate test
+  environment and are not installed in Slicer or Pyodide.
+- Automatic VMTK extraction is checked when ExtractCenterline is installed,
+  including endpoint coverage. Otherwise the test verifies an explicit unavailable
+  state; manual/imported editable Markups remain supported. SlicerWeb currently
+  does not bundle VMTK.
 - Local infrastructure tests use real temporary Git repositories to check
   publication rules, and CMake/CPack to check archive contents and source bytes.
 
@@ -108,19 +115,31 @@ export SLICERWEB_EXTENSIONS="$PWD/build/web-package/wheels"
 node tests/integration/slicer/slicerweb.mjs build/web-runtime/SlicerWeb build/web-package
 ```
 
-## Validate the vessel application after migration
+## Application workflow acceptance
 
-Keep the same compatibility jobs, replacing the demo with the real module and its
-tests. Add algorithm tests with deterministic synthetic masks and centerlines,
-then an end-to-end fixture through ARG, disconnected-component removal, centerline
-generation and editing, and ModelO. Define expected geometry and segmentation
-metrics before accepting changes. Hosted inference also needs integration tests
-for transport, cancellation, model selection and result import.
+The shipped module implements endpoint setup, ARG inference, connected-component
+cleanup and trimming, editable centerlines, and ModelO inference. Cleanup uses
+component count or minimum physical volume and preserves the raw ARG segmentation.
+Trimming opens the host's Segment Editor on the selected cleanup segment.
 
-Real model weights and inference environments require separate provisioning.
-This demo's software-rendered browser and desktop tests do not establish model
-accuracy or native GPU/provider compatibility. Release checks must cover the
-actual supported deployment and desktop platforms.
+Pure geometry/transport tests live in `VesselRaySegmentation/Testing/Python`.
+Run them with the installed Label test environment to include real HTTP tests:
+
+```sh
+uv sync --project deployment/monai --frozen --group dev
+VRS_TEST_ENDPOINT_PYTHON="$PWD/deployment/monai/.venv/bin/python" \
+  deployment/monai/.venv/bin/python -m pytest -q VesselRaySegmentation/Testing/Python
+```
+
+Set the same `VRS_TEST_ENDPOINT_PYTHON` for the desktop command above. For browser
+acceptance, add `--endpoint-python "$PWD/deployment/monai/.venv/bin/python"` to
+`slicerweb.mjs`. Reports distinguish MRML tests, automatic VMTK availability,
+synthetic endpoint workflow and compiled inference runtime acceptance.
+
+These synthetic checks prove geometry, transport and application integration.
+Real model weights and inference environments require separate provisioning;
+patient-level segmentation quality and target hardware acceptance remain separate
+release gates. Scripted packaging does not establish a catalog-ready SDK build.
 
 ## Upstream references
 
@@ -133,7 +152,7 @@ actual supported deployment and desktop platforms.
 
 ## Backend validation
 
-`backend-ci.yml` runs independently from the stable/nightly/SlicerWeb demo checks.
+`backend-ci.yml` runs independently from the stable/nightly/SlicerWeb application checks.
 It builds wheel and source distributions for both production packages using uv
 0.12.23. A fresh dependency environment comes from the existing lockfile; built
 wheels replace source-built packages before acceptance. `python -I` and package
@@ -212,8 +231,8 @@ node tests/integration/slicer/slicerweb.mjs build/web-runtime/SlicerWeb build/we
 The separate shared-Python matrix accepts installed wheels on Python 3.12 and
 3.14 with only NumPy/SciPy. Native/Label lockfiles remain scoped to Python 3.12
 because the Label dependency set requires NumPy below 2, while newer Python
-versions need newer numerical wheels. Existing WGSL resources remain packaged;
-the PySlang rewrite is deferred.
+versions need newer numerical wheels. Generated WGSL/reflection resources are packaged from the typed Slang sources;
+the compiler and SlangPy are not runtime dependencies.
 
 Artifacts expire after seven days. Containers are built and tested locally on the
 runner; this workflow does not publish registry images or create a release.
@@ -364,12 +383,21 @@ Python worker. Neither path permits CPU fallback. Trained weights are not part
 of the public repository or default synthetic CI fixtures.
 
 Model logits use `atol=0.0005`, `rtol=0.003`, with exact binary-mask agreement.
-These limits are distinct from the tighter shader-input comparisons. The local
-trained-model stress fixtures had up to 0.066 native/CPU logit difference even
-when CPU uploaded identical inputs; they contained no predicted foreground.
-Reports include foreground counts so this limitation remains visible. Matched
-patient inputs and foreground cases remain necessary for prediction-quality
-acceptance and provider-numerics investigation.
+These limits are distinct from the tighter shader-input comparisons. ModelO
+preparation lowers large-spatial GroupNorm to centered, axiswise FP32 standard
+ONNX operations while preserving learned affine parameters, epsilon and dynamic
+ray counts. The original CPU ONNX reference itself differed from the untouched
+PyTorch checkpoint; this lowering reduced the five-fixture maximum error from
+0.0661 to 0.000145. Native and browser stress/foreground tests then passed the
+unchanged logit limits with identical binary masks. The dense phantom contains
+64 foreground voxels. Reports include foreground counts and distinguish shader
+inputs, model scores and final masks. Matched patient cases remain necessary for
+prediction-quality acceptance.
+
+Q16 sampling splits signed coordinates into integer floor and fraction before
+float conversion and computes normalized origins relative to the integer patch
+corner. Native/browser regressions cover negative borders, signed half ties and
+single-unit offsets at voxel coordinates 300 and 3072.
 
 Strict zero thresholding implements the mathematical 0.5 probability boundary.
 It deliberately keeps tiny positive logits that the previous FP32 sigmoid could

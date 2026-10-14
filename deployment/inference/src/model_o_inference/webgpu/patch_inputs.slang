@@ -24,6 +24,9 @@ RWStructuredBuffer<float> ray_hu;
 RWStructuredBuffer<float> ct_patch;
 
 static const uint PATCH_VOXELS = PATCH_SIZE * PATCH_SIZE * PATCH_SIZE;
+#if FIXED_POINT_SCALE != 65536
+#error ModelO sampling requires the Q16 lattice.
+#endif
 #if FEATURE_COUNT != 2
 #error ModelO requires normalized HU and position, in that order.
 #endif
@@ -39,20 +42,23 @@ uint patchIndex(int3 v) {
     return uint(v.x) * PATCH_SIZE * PATCH_SIZE + uint(v.y) * PATCH_SIZE + uint(v.z);
 }
 int roundFixed(int value) {
-    int quotient = value / FIXED_POINT_SCALE;
-    int remainder = value % FIXED_POINT_SCALE;
-    if (remainder < 0) { quotient -= 1; remainder += FIXED_POINT_SCALE; }
+    // Arithmetic shift is floor; low bits are the nonnegative Q16 fraction.
+    // Avoid signed division/remainder lowering differences on negative borders.
+    int quotient = value >> 16;
+    int remainder = value & 65535;
     int half = FIXED_POINT_SCALE / 2;
     if (remainder < half) return quotient;
     if (remainder > half) return quotient + 1;
-    return (quotient % 2 == 0) ? quotient : quotient + 1;
+    return ((quotient & 1) == 0) ? quotient : quotient + 1;
 }
 int3 roundVoxel(int3 v) { return int3(roundFixed(v.x), roundFixed(v.y), roundFixed(v.z)); }
 float3 toFloat(int3 v) { return float3(v) / float(FIXED_POINT_SCALE); }
 float loadClamped(int3 v) { return volume_zyx[volumeIndex(clamp(v, 0, dimensions() - 1))]; }
-float sampleHU(float3 pos) {
-    int3 lo = int3(floor(pos));
-    float3 fraction = pos - float3(lo);
+float sampleHU(int3 posFP) {
+    // Split before conversion: float32 whole coordinates lose low Q16 bits
+    // above voxel 256, changing interpolation even though scatter stays exact.
+    int3 lo = posFP >> 16;
+    float3 fraction = float3(posFP & 65535) / float(FIXED_POINT_SCALE);
     float c00 = lerp(loadClamped(lo), loadClamped(lo + int3(0, 0, 1)), fraction.z);
     float c01 = lerp(loadClamped(lo + int3(0, 1, 0)), loadClamped(lo + int3(0, 1, 1)), fraction.z);
     float c10 = lerp(loadClamped(lo + int3(1, 0, 0)), loadClamped(lo + int3(1, 0, 1)), fraction.z);
@@ -67,7 +73,9 @@ void writeMask(uint index, bool valid) {
     ray_mask[word] |= uint(valid) << ((index % 4) * 8);
 }
 void writeGeometry(uint ray, int3 originFP, int3 stepFP) {
-    float3 origin = (toFloat(originFP) - float3(patchCorner())) / float(PATCH_SIZE);
+    float3 relativeBase = float3((originFP >> 16) - patchCorner());
+    float3 fraction = float3(originFP & 65535) / float(FIXED_POINT_SCALE);
+    float3 origin = (relativeBase + fraction) / float(PATCH_SIZE);
     float3 direction = toFloat(stepFP) / float(PATCH_SIZE);
     origin_zyx_norm[ray] = { origin.x, origin.y, origin.z };
     direction_zyx_norm[ray] = { direction.x, direction.y, direction.z };
@@ -88,7 +96,7 @@ void buildRay(uint ray) {
         // Match training: stop at the first volume or patch exit.
         bool valid = !stopped && inVolume(voxel) && inPatch(local);
         uint sample = ray * RAY_LENGTH + k;
-        float hu = valid ? sampleHU(toFloat(posFP)) : 0.0;
+        float hu = valid ? sampleHU(posFP) : 0.0;
         ray_hu[sample] = hu;
         ray_features[sample * FEATURE_COUNT] = hu / h0;
         voxel_indices[sample] = uint2(valid ? patchIndex(local) : 0, 0);

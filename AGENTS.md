@@ -111,8 +111,8 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   research checkpoints use different features, so ONNX `feature_channels`
   metadata is required as well as shape/dtype validation. Do not infer semantics
   from channel count. Legacy seven-channel exports are explicitly unsupported.
-  The internal training exporter and desktop staging copies still have older
-  contracts; a successful old export alone does not establish compatibility.
+  The internal training exporter now applies the production graph preparation;
+  desktop staging copies still have older contracts and are not release sources.
 
 - The ray shader truncates at the first patch or volume exit, matching training.
   Position is normalized by that valid length; padded features and HU are zero.
@@ -125,13 +125,27 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   the new strict zero boundary is intentional and tested. There is no external
   sigmoid shader or floating-point probability accumulator.
 
-- Trained-model parity and shader parity use different tolerances. On local
-  Metal, the selected HU/position model differed from CPU ONNX by up to 0.066
-  in logits on synthetic intensity stress fixtures, even with identical
-  CPU-uploaded inputs. Binary masks agreed, but those model fixtures contained
-  no foreground. The optional model gate records `atol=0.0005`, `rtol=0.003`
-  and exact mask agreement separately from strict shader-input comparisons.
-  This does not establish patient or foreground prediction parity.
+- CPU ONNX is not automatically the trained-model reference. Original large
+  spatial GroupNorm contributed most of the observed CPU/native discrepancy.
+  Production graph preparation now lowers GroupNorm to centered, axiswise FP32
+  standard operations, preserving affine state and epsilon. The same raw
+  HU/position checkpoint then matches its untouched PyTorch forward within
+  0.000145 across five fixtures. Native and browser foreground fixtures pass
+  unchanged tolerances and identical masks. Keep native checkpoint, model-score,
+  near-zero decision and final-mask checks separate; this is not patient validation.
+
+- Keep Q16 floor, fractions and ties in integer arithmetic. The Slang shader
+  uses arithmetic shifts and masks before interpolation and subtracts the
+  integer patch corner before origin normalization. Whole-coordinate float32
+  conversion loses fractional bits above voxel 256. Regress signed borders,
+  half ties and one-Q16-unit offsets on both native and browser runtimes.
+
+- SlicerWeb currently has no Python sockets, bundled VMTK or usable native
+  QLineEdit password echo mode. Hosted requests use asynchronous browser fetch,
+  with CORS configured by the endpoint. The browser adapter must mask the bearer
+  token's DOM input; desktop uses native password echo mode. Never persist bearer
+  tokens in settings, MRML scenes or logs. Automatic centerlines require the
+  available ExtractCenterline module; manual/imported Markups are supported.
 
 - ORT resolves relative provider-library paths beneath its own C API directory.
   Native acceptance canonicalizes asset paths before registering the library.
@@ -181,3 +195,15 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   and do not count `GPUBuffer.mapAsync` waits. Keep report fields and claims
   scoped to the observed caller operations; they do not prove that the provider
   performs no internal synchronization or transfers.
+
+- Slicer launches can export PYTHONHOME and library paths for their embedded
+  Python. Sanitize that inherited environment when launching an independent
+  Python service; otherwise its own standard library can fail before startup.
+
+- Browser fetch timeouts must cover response-body reading as well as receipt of
+  headers. Abort pending reads, and never launch inference after session disposal
+  during discovery/upload. Closing a MRML scene discards pending imports and
+  releases the client snapshot; it does not prove remote inference cancellation.
+  Before import, verify that the live CT still matches the captured identity,
+  grid, voxel values and transform policy; another module can edit it while
+  the workflow panel is disabled.

@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 from model_o_inference.constants import PATCH_SIZE, RAY_LENGTH
-from model_o_inference.lattice import FIXED_POINT_SCALE, round_fixed_to_voxel
+from model_o_inference.lattice import FIXED_POINT_SCALE
 from model_o_inference.shader_contract import config_record, output_specs
 
 
@@ -39,7 +39,7 @@ def reference(
     outputs["direction_zyx_norm"][:] = steps / FIXED_POINT_SCALE / PATCH_SIZE
     for ray in range(len(geometry)):
         positions = origins[ray] + np.arange(1, RAY_LENGTH + 1)[:, None] * steps[ray]
-        voxels = round_fixed_to_voxel(positions)
+        voxels = np.rint(positions.astype(np.float64) / FIXED_POINT_SCALE).astype(np.int64)
         local = voxels - corner
         valid = np.all((voxels >= 0) & (voxels < volume.shape), axis=1) & np.all(
             (local >= 0) & (local < PATCH_SIZE), axis=1
@@ -97,9 +97,9 @@ def make_tensor_bridge(output: Path, rays: int) -> None:
 
 
 def generate(output: Path) -> dict[str, Any]:
-    """Include workgroup tails, zero-valid rays, border ties, and CT padding."""
+    """Include signed ties, large-coordinate Q16 fractions, tails and padding."""
     output.mkdir(parents=True, exist_ok=True)
-    z, y, x = np.indices((12, 13, 14))
+    z, y, x = np.indices((4096, 13, 14))
     volume = (130 + 5 * z - 3 * y + 0.25 * x + 20 * np.sin(z / 3)).astype(np.float32)
     patterns = np.array(
         [
@@ -110,6 +110,13 @@ def generate(output: Path) -> dict[str, Any]:
             [11.5, 12.5, 13.5, 0, 0, 0],
             [5, 6, 7, 0, 0, 0],
             [10, 11, 12, -0.25, -0.5, -0.75],
+            [-0.5 + 1 / FIXED_POINT_SCALE, 2, 2, 0, 0, 0],
+            [-0.5 - 1 / FIXED_POINT_SCALE, 2, 2, 0, 0, 0],
+            [300.5 + 1 / FIXED_POINT_SCALE, 5, 6, 0, 0, 0],
+            [3072.5 + 1 / FIXED_POINT_SCALE, 5, 6, 0, 0, 0],
+            [3072.5 - 1 / FIXED_POINT_SCALE, 5, 6, 0, 0, 0],
+            [3072.5, 5, 6, 0, 0, 0],
+            [3073.5, 5, 6, 0, 0, 0],
         ]
     )
     lattice = np.rint(patterns[np.arange(65) % len(patterns)] * FIXED_POINT_SCALE).astype(np.int32)
@@ -123,10 +130,22 @@ def generate(output: Path) -> dict[str, Any]:
         "geometry": "geometry.bin",
         "cases": [],
     }
-    for label, data in (("varying", volume), ("constant", np.full_like(volume, -200))):
+    # A one-Q16-unit offset around a half voxel produces exactly +/-1 HU.
+    # Converting the whole coordinate to float32 erases that offset above 256.
+    precision = np.where(z % 2 == 0, 32768.0, -32768.0).astype(np.float32)
+    for label, data in (
+        ("varying", volume),
+        ("constant", np.full_like(volume, -200)),
+        ("q16-precision", precision),
+    ):
         data.tofile(output / f"{label}.bin")
         for iteration, (center, h0) in enumerate(
-            ((np.array([6, 6, 7]), 180.0), (np.array([35, 35, 35]), 0.0))
+            (
+                (np.array([6, 6, 7]), 180.0),
+                (np.array([35, 35, 35]), 0.0),
+                (np.array([300, 6, 7]), 180.0),
+                (np.array([3072, 6, 7]), 180.0),
+            )
         ):
             name = f"{label}-{iteration}"
             config = config_record(data.shape, len(geometry), h0, tuple(center - PATCH_SIZE // 2))

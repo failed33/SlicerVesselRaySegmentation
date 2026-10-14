@@ -1,7 +1,7 @@
 // Install the built wheel through SlicerWeb, then run the same MRML/widget tests as desktop.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { cp, readFile, mkdir, writeFile } from "node:fs/promises";
+import { cp, readFile, mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 const { positionals, values } = parseArgs({ allowPositionals: true, options: {
   fixtures: { type: "string" }, "allow-software": { type: "boolean", default: false },
   "require-f16": { type: "boolean", default: false },
+  "endpoint-python": { type: "string" },
 } });
 assert.equal(positionals.length, 2, "Usage: slicerweb.mjs SOURCE OUTPUT [--fixtures DIR --allow-software]");
 const [source, output] = positionals.map((value) => path.resolve(value));
@@ -17,7 +18,7 @@ const testCode = await readFile(new URL("module.py", import.meta.url), "utf8");
 const info = JSON.parse(await readFile(path.join(source, "../wheels/build-info.json"), "utf8"));
 const index = JSON.parse(await readFile(path.join(output, "wheels/index.json"), "utf8"));
 assert.equal(index.extensions.length, 1);
-assert.deepEqual(index.extensions[0].modules, ["VesselRaySegmentationDemo"]);
+assert.deepEqual(index.extensions[0].modules, ["VesselRaySegmentation"]);
 const runtimeTests = fileURLToPath(new URL("../runtime/", import.meta.url));
 let runtimePackage;
 let workerFiles;
@@ -46,8 +47,36 @@ const server = spawn("npm", ["run", "preview", "--", "--host", "127.0.0.1", "--p
     SLICERWEB_EXTENSIONS: path.join(output, "wheels"),
   } });
 let browser;
+let endpointProcess;
 await mkdir(path.join(output, "results"), { recursive: true });
 try {
+  let endpoint;
+  if (values["endpoint-python"]) {
+    const directory = path.join(output, "endpoint");
+    await mkdir(directory, { recursive: true });
+    const ready = path.join(directory, "ready.json");
+    await rm(ready, { force: true });
+    const root = fileURLToPath(new URL("../../../", import.meta.url));
+    endpointProcess = spawn(path.resolve(values["endpoint-python"]), [
+      fileURLToPath(new URL("endpoint.py", import.meta.url)), "--work-dir", directory,
+      "--ready-file", ready, "--events-file", path.join(directory, "events.jsonl"),
+      "--inference-delay", "0.3",
+    ], { stdio: "inherit", env: { ...process.env, ORT_DISABLE_TELEMETRY: "1",
+      MONAI_LABEL_AUTH_ENABLE: "true", MONAI_LABEL_DATASTORE_AUTO_RELOAD: "false",
+      MLFLOW_DISABLE_TELEMETRY: "true",
+      PYTHONPATH: [path.join(root, "deployment/monai"), path.join(root, "deployment/inference/src")].join(path.delimiter),
+    } });
+    for (let attempt = 0; ; attempt++) {
+      if (endpointProcess.exitCode !== null) throw new Error("Workflow endpoint exited");
+      try {
+        endpoint = JSON.parse(await readFile(ready, "utf8"));
+        const response = await fetch(endpoint.endpoint + "/info/", { headers: { Authorization: `Bearer ${endpoint.token}` } });
+        if (response.ok) break;
+      } catch {}
+      if (attempt >= 120) throw new Error("Workflow endpoint did not start");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
   const url = "http://127.0.0.1:4173/?sample=";
   for (let attempt = 0; ; attempt++) {
     if (server.exitCode !== null) throw new Error(`SlicerWeb preview exited: ${server.exitCode}`);
@@ -89,11 +118,43 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
   }, { wheel: index.extensions[0].wheel, code: testCode });
   report.slicerweb_revision = info.slicerweb.commit;
   report.browser = browser.version();
-  await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentationDemo")'));
-  await page.getByRole("button", { name: "Create demo curve", exact: true }).click();
+  await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentation")'));
+  await page.getByRole("button", { name: "Create centerline curve", exact: true }).click();
   await page.waitForFunction(() => window.slicerWeb.pyodide.runPython(
     'slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLMarkupsCurveNode")') === 2);
   report.browser_button_click = "passed";
+  assert.equal(await page.locator('input[type="password"]').count(), 1,
+    "Bearer token must be masked by the browser input");
+  if (endpoint) {
+    await page.exposeFunction("_workflowRequestStarted", async () => {
+      for (let attempt = 0; attempt < 4500; attempt++) {
+        const events = (await readFile(path.join(output, "endpoint/events.jsonl"), "utf8"))
+          .trim().split("\n").filter(Boolean).map(JSON.parse);
+        if (events.filter((event) => event.kind === "inference-start").length >= 4) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error("The final ModelO request did not enter inference");
+    });
+    report.hosted_workflow = await page.evaluate(async ({ endpoint, token }) => {
+      const pyodide = window.slicerWeb.pyodide;
+      pyodide.globals.set("_workflow_endpoint", endpoint);
+      pyodide.globals.set("_workflow_token", token);
+      return JSON.parse(await pyodide.runPythonAsync(`
+from js import window
+async def _workflow_request_started():
+    await window._workflowRequestStarted()
+json.dumps(await test_hosted_workflow(_workflow_endpoint, _workflow_token, _workflow_request_started))
+`));
+    }, endpoint);
+    const events = (await readFile(path.join(output, "endpoint/events.jsonl"), "utf8"))
+      .trim().split("\n").map(JSON.parse);
+    report.hosted_workflow.uploads = events.filter((event) => event.method === "PUT").length;
+    assert.equal(report.hosted_workflow.uploads, 1, "ARG and ModelO must share one CT upload");
+    const starts = events.filter((event) => event.kind === "inference-start");
+    const finishes = events.filter((event) => event.kind === "inference");
+    assert(starts.at(-1).timestamp < report.hosted_workflow.scene_closed_at);
+    assert(finishes.at(-1).timestamp > report.hosted_workflow.scene_closed_at);
+  }
   if (runtimePackage) {
     const installedHashes = await page.evaluate(async (packaged) => {
       const pyodide = window.slicerWeb.pyodide;
@@ -150,7 +211,11 @@ packages=["scipy"], onDone=_runtime_done, onFailed=_runtime_failed)
     report.runtime = { ...state.result, installed_asset_hashes: installedHashes };
   }
   await writeFile(path.join(output, "results/slicerweb.json"), JSON.stringify(report, null, 2) + "\n");
+  await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentation")'));
+  await page.getByRole("button", { name: "Refresh models", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "results/slicerweb.png") });
+  await page.getByRole("button", { name: "Run ModelO inference", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "results/slicerweb-model-o.png") });
   console.log(JSON.stringify({ status: report.status, tests_run: report.tests_run,
     browser: report.browser, slicerweb_revision: report.slicerweb_revision,
     ...(report.runtime ? { adapter: report.runtime.adapter, shader_f16: report.runtime.shader_f16,
@@ -162,4 +227,5 @@ packages=["scipy"], onDone=_runtime_done, onFailed=_runtime_failed)
 } finally {
   await browser?.close();
   server.kill("SIGTERM");
+  endpointProcess?.kill("SIGTERM");
 }

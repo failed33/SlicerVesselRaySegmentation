@@ -77,7 +77,7 @@ fn PackedZYX_x24init_0( z_1 : f32,  y_1 : f32,  x_1 : f32) -> PackedZYX_0
 fn writeGeometry_0( ray_0 : u32,  originFP_0 : vec3<i32>,  stepFP_0 : vec3<i32>)
 {
     var _S2 : vec3<f32> = vec3<f32>(48.0f);
-    var origin_0 : vec3<f32> = (toFloat_0(originFP_0) - vec3<f32>(patchCorner_0())) / _S2;
+    var origin_0 : vec3<f32> = (vec3<f32>(((originFP_0 >> (vec3<u32>(u32(16))))) - patchCorner_0()) + vec3<f32>((originFP_0 & (vec3<i32>(i32(65535))))) / vec3<f32>(6.5536e+04f)) / _S2;
     var direction_0 : vec3<f32> = toFloat_0(stepFP_0) / _S2;
     var _S3 : PackedZYX_0 = PackedZYX_x24init_0(origin_0.x, origin_0.y, origin_0.z);
     origin_zyx_norm_0[ray_0].z_0 = _S3.z_0;
@@ -92,38 +92,26 @@ fn writeGeometry_0( ray_0 : u32,  originFP_0 : vec3<i32>,  stepFP_0 : vec3<i32>)
 
 fn roundFixed_0( value_0 : i32) -> i32
 {
-    var quotient_0 : i32 = value_0 / i32(65536);
-    var remainder_0 : i32 = value_0 % i32(65536);
-    var remainder_1 : i32;
-    var quotient_1 : i32;
-    if(remainder_0 < i32(0))
+    var quotient_0 : i32 = (value_0 >> (u32(16)));
+    var remainder_0 : i32 = (value_0 & (i32(65535)));
+    if(remainder_0 < i32(32768))
     {
-        var quotient_2 : i32 = quotient_0 - i32(1);
-        remainder_1 = remainder_0 + i32(65536);
-        quotient_1 = quotient_2;
+        return quotient_0;
+    }
+    if(remainder_0 > i32(32768))
+    {
+        return quotient_0 + i32(1);
+    }
+    var _S5 : i32;
+    if(((quotient_0 & (i32(1)))) == i32(0))
+    {
+        _S5 = quotient_0;
     }
     else
     {
-        remainder_1 = remainder_0;
-        quotient_1 = quotient_0;
+        _S5 = quotient_0 + i32(1);
     }
-    if(remainder_1 < i32(32768))
-    {
-        return quotient_1;
-    }
-    if(remainder_1 > i32(32768))
-    {
-        return quotient_1 + i32(1);
-    }
-    if((quotient_1 % i32(2)) == i32(0))
-    {
-        remainder_1 = quotient_1;
-    }
-    else
-    {
-        remainder_1 = quotient_1 + i32(1);
-    }
-    return remainder_1;
+    return _S5;
 }
 
 fn roundVoxel_0( v_1 : vec3<i32>) -> vec3<i32>
@@ -138,30 +126,30 @@ fn dimensions_0() -> vec3<i32>
 
 fn inVolume_0( v_2 : vec3<i32>) -> bool
 {
-    var _S5 : bool;
+    var _S6 : bool;
     if((all((v_2 >= vec3<i32>(i32(0))))))
     {
-        _S5 = (all((v_2 < (dimensions_0()))));
-    }
-    else
-    {
-        _S5 = false;
-    }
-    return _S5;
-}
-
-fn inPatch_0( v_3 : vec3<i32>) -> bool
-{
-    var _S6 : bool;
-    if((all((v_3 >= vec3<i32>(i32(0))))))
-    {
-        _S6 = (all((v_3 < vec3<i32>(i32(48)))));
+        _S6 = (all((v_2 < (dimensions_0()))));
     }
     else
     {
         _S6 = false;
     }
     return _S6;
+}
+
+fn inPatch_0( v_3 : vec3<i32>) -> bool
+{
+    var _S7 : bool;
+    if((all((v_3 >= vec3<i32>(i32(0))))))
+    {
+        _S7 = (all((v_3 < vec3<i32>(i32(48)))));
+    }
+    else
+    {
+        _S7 = false;
+    }
+    return _S7;
 }
 
 fn volumeIndex_0( v_4 : vec3<i32>) -> u32
@@ -174,13 +162,13 @@ fn loadClamped_0( v_5 : vec3<i32>) -> f32
     return volume_zyx_0[volumeIndex_0(clamp(v_5, vec3<i32>(i32(0)), dimensions_0() - vec3<i32>(i32(1))))];
 }
 
-fn sampleHU_0( pos_0 : vec3<f32>) -> f32
+fn sampleHU_0( posFP_0 : vec3<i32>) -> f32
 {
-    var _S7 : vec3<i32> = vec3<i32>(floor(pos_0));
-    var fraction_0 : vec3<f32> = pos_0 - vec3<f32>(_S7);
+    var lo_0 : vec3<i32> = (posFP_0 >> (vec3<u32>(u32(16))));
+    var fraction_0 : vec3<f32> = vec3<f32>((posFP_0 & (vec3<i32>(i32(65535))))) / vec3<f32>(6.5536e+04f);
     var _S8 : f32 = fraction_0.z;
     var _S9 : f32 = fraction_0.y;
-    return mix(mix(mix(loadClamped_0(_S7), loadClamped_0(_S7 + vec3<i32>(i32(0), i32(0), i32(1))), _S8), mix(loadClamped_0(_S7 + vec3<i32>(i32(0), i32(1), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(0), i32(1), i32(1))), _S8), _S9), mix(mix(loadClamped_0(_S7 + vec3<i32>(i32(1), i32(0), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(1), i32(0), i32(1))), _S8), mix(loadClamped_0(_S7 + vec3<i32>(i32(1), i32(1), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(1), i32(1), i32(1))), _S8), _S9), fraction_0.x);
+    return mix(mix(mix(loadClamped_0(lo_0), loadClamped_0(lo_0 + vec3<i32>(i32(0), i32(0), i32(1))), _S8), mix(loadClamped_0(lo_0 + vec3<i32>(i32(0), i32(1), i32(0))), loadClamped_0(lo_0 + vec3<i32>(i32(0), i32(1), i32(1))), _S8), _S9), mix(mix(loadClamped_0(lo_0 + vec3<i32>(i32(1), i32(0), i32(0))), loadClamped_0(lo_0 + vec3<i32>(i32(1), i32(0), i32(1))), _S8), mix(loadClamped_0(lo_0 + vec3<i32>(i32(1), i32(1), i32(0))), loadClamped_0(lo_0 + vec3<i32>(i32(1), i32(1), i32(1))), _S8), _S9), fraction_0.x);
 }
 
 fn patchIndex_0( v_6 : vec3<i32>) -> u32
@@ -222,8 +210,8 @@ fn buildRay_0( ray_1 : u32)
             break;
         }
         var _S13 : u32 = k_0 + u32(1);
-        var posFP_0 : vec3<i32> = originFP_1 + stepFP_1 * vec3<i32>(i32(_S13));
-        var voxel_0 : vec3<i32> = roundVoxel_0(posFP_0);
+        var posFP_1 : vec3<i32> = originFP_1 + stepFP_1 * vec3<i32>(i32(_S13));
+        var voxel_0 : vec3<i32> = roundVoxel_0(posFP_1);
         var local_0 : vec3<i32> = voxel_0 - _S12;
         var _S14 : bool;
         if(!stopped_0)
@@ -246,7 +234,7 @@ fn buildRay_0( ray_1 : u32)
         var sample_0 : u32 = ray_1 * u32(120) + k_0;
         if(valid_1)
         {
-            hu_0 = sampleHU_0(toFloat_0(posFP_0));
+            hu_0 = sampleHU_0(posFP_1);
         }
         else
         {

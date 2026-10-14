@@ -1,4 +1,4 @@
 {
   "pythonPackages": ["numpy", "scipy"],
-  "icon": "VesselRaySegmentationDemo/Resources/Icons/VesselRaySegmentationDemo.png"
+  "icon": "VesselRaySegmentation/Resources/Icons/VesselRaySegmentation.png"
 }
