@@ -22,6 +22,11 @@ Put downloads, extracted packages, virtual environments and reports under ignore
 
 ## Alerts
 
+- Direct GitHub README edits during a GitLab outage caused publication to reject
+  a non-fast-forward update. Fetch and preserve public-only commits by merging
+  them into authoritative GitLab history before retrying. Never force-push the
+  mirror or overwrite those edits.
+
 - macOS CPack's tar generator can add AppleDouble `._` metadata files even when the
   source manifest contains none. CI's portable scripted artifact uses ZIP. Keep
   the archive content assertion strict rather than ignoring unexpected files.
