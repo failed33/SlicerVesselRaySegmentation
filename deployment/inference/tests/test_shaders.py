@@ -51,6 +51,7 @@ def test_packed_records_and_final_onnx_tensor_types():
     assert [record[name][0] for name in record.dtype.names] == [11, 12, 13, 65, -24, 7, -9, 123.5]
     specs = output_specs(65)
     assert tuple(s.name for s in specs) == INPUT_NAMES
+    assert specs[0].shape == (65, 120, 2)
     assert specs[1].dtype == np.dtype(bool) and specs[1].nbytes == 65 * 120
     assert specs[4].dtype == np.dtype(np.int64) and specs[4].nbytes == 65 * 120 * 8
     assert shader.workgroups(65 + 48**3) == (65 + 48**3 + 63) // 64

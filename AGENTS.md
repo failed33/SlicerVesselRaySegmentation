@@ -101,12 +101,32 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   WGSL rewriting. Reflection supplies bindings and config offsets, not ONNX
   semantic shapes/dtypes. See the build guide for regeneration and acceptance.
 
-- Flat-profile eta-squared is a known numerical defect in the existing feature
-  policy. Original WGSL and Slang produce identical values on the local Metal
-  fixture, but FP32 arithmetic can emit eta up to 1 where float64 yields zero.
-  The production fixture excludes only those flat-profile eta samples from CPU
-  parity and checks finite [0,1] bounds explicitly. Keep this exception visible;
-  resolving it needs dataset/training validation, not a relaxed global tolerance.
+- Seven ONNX input tensors do not imply seven ray-feature channels. Production
+  uses exactly `hu_normalized`, `position`, in that order. Some two-channel
+  research checkpoints use different features, so ONNX `feature_channels`
+  metadata is required as well as shape/dtype validation. Do not infer semantics
+  from channel count. Legacy seven-channel exports are explicitly unsupported.
+  The internal training exporter and desktop staging copies still have older
+  contracts; a successful old export alone does not establish compatibility.
+
+- The ray shader truncates at the first patch or volume exit, matching training.
+  Position is normalized by that valid length; padded features and HU are zero.
+  Do not restore full-volume features with only a scatter mask. Fisher statistics
+  and the legacy flat-profile parity exception are absent from production.
+
+- Binary output thresholds finite logits strictly above zero, then unions masks.
+  Preserve NaN/infinity rejection when editing this path. Tiny positive logits
+  can differ from the old FP32 sigmoid path, which rounded them to exactly 0.5;
+  the new strict zero boundary is intentional and tested. There is no external
+  sigmoid shader or floating-point probability accumulator.
+
+- Trained-model parity and shader parity use different tolerances. On local
+  Metal, the selected HU/position model differed from CPU ONNX by up to 0.066
+  in logits on synthetic intensity stress fixtures, even with identical
+  CPU-uploaded inputs. Binary masks agreed, but those model fixtures contained
+  no foreground. The optional model gate records `atol=0.0005`, `rtol=0.003`
+  and exact mask agreement separately from strict shader-input comparisons.
+  This does not establish patient or foreground prediction parity.
 
 - ORT resolves relative provider-library paths beneath its own C API directory.
   Native acceptance canonicalizes asset paths before registering the library.
@@ -116,13 +136,14 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   Keep the seven-input ONNX acceptance with CPU fallback disabled; the earlier
   floating-point fixtures could not detect this missing ModelO requirement.
 
-- Native shared-device initialization needs a completion boundary. During the
-  Slang migration, repeated asynchronous ConvTranspose acceptance returned only
-  bias although the caller input buffer contained the correct values. Completing
-  the queue once after ORT initialization eliminated the observed failure;
-  `GpuSession` now does this before exposing the session. The provider's internal
-  cause remains unassigned. Keep this initialization barrier and the numerical
-  gate strict; per-inference submissions remain asynchronous.
+- The pinned provider's optional weight prepacking can produce bias-only native
+  ConvTranspose outputs despite correct caller inputs. An initialization wait
+  did not prevent recurrence. `GpuSession` now sets upstream
+  `session.disable_prepacking=1`, retaining original weights for its direct
+  kernels; browser acceptance uses the same policy. Initialization still
+  completes uploads before caller work, and per-inference submissions remain
+  asynchronous. Do not enable prepacking without repeated fresh-process
+  numerical acceptance. The underlying provider cause remains unassigned.
 
 - Python metadata and runtime dependency support are different boundaries.
   Shared numerical code supports Python 3.14 in Pyodide, but the native/Label

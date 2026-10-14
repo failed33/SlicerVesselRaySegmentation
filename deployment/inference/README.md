@@ -11,6 +11,14 @@ install Torch, nnU-Net or training code. ModelO consumes a CT and ordered ZYX
 polylines, generates ray inputs and executes through matched native Dawn assets.
 Models and patient data are supplied separately.
 
+ModelO uses exactly two ordered ray-feature channels, `hu_normalized` and
+`position`, within its seven input tensors. Exports must declare that ordered
+list as JSON in ONNX `feature_channels` metadata. The runtime validates names,
+shapes and dtypes before session creation. Rays stop at their first patch or
+volume exit, matching training. Output logits are checked for finite values,
+thresholded strictly above zero and combined by boolean union. No final sigmoid,
+probability accumulator, smoothing or morphological closing is required.
+
 Numerical modules import independently of native execution and server packages.
 `arg_inference.plans` is standard-library-only; importing ARG no longer imports
 its execution dependencies. ModelO still needs ONNX for graph preparation, so its
@@ -68,6 +76,6 @@ worker and verifies dependency origins after relocation.
 SlicerWeb uses the same numerical Python code in Pyodide. A separate
 [WASM build](wasm/README.md) compiles the patched ORT C++ WebGPU provider and its
 matching JavaScript bindings. The browser supplies WebGPU; desktop Dawn libraries
-are not loaded there. WGSL shaders remain unchanged pending the later PySlang
-migration. See the canonical [build and validation guide](../../docs/build-and-test.md)
+are not loaded there. Slang supplies the ray shader; WGSL and reflection are
+generated package resources. See the canonical [build and validation guide](../../docs/build-and-test.md)
 for packaging commands and proof boundaries.

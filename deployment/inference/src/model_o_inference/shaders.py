@@ -53,7 +53,7 @@ class Shader:
 
 @cache
 def load_shader(name: str) -> Shader:
-    if name not in {"patch_inputs", "sigmoid"}:
+    if name != "patch_inputs":
         raise ValueError(f"Unknown ModelO shader: {name}")
     code = (_ROOT / "generated" / f"{name}.wgsl").read_bytes()
     metadata = json.loads((_ROOT / "generated" / f"{name}.json").read_text())

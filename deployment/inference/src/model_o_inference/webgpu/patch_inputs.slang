@@ -24,7 +24,9 @@ RWStructuredBuffer<float> ray_hu;
 RWStructuredBuffer<float> ct_patch;
 
 static const uint PATCH_VOXELS = PATCH_SIZE * PATCH_SIZE * PATCH_SIZE;
-static const float NEG_INF = -1.0e30;
+#if FEATURE_COUNT != 2
+#error ModelO requires normalized HU and position, in that order.
+#endif
 
 int3 dimensions() { return int3(config[0].depth, config[0].height, config[0].width); }
 int3 patchCorner() { return int3(config[0].cornerZ, config[0].cornerY, config[0].cornerX); }
@@ -64,24 +66,13 @@ void writeMask(uint index, bool valid) {
     if (index % 4 == 0) ray_mask[word] = 0;
     ray_mask[word] |= uint(valid) << ((index % 4) * 8);
 }
-uint2 paddingIndex() {
-    // Existing CPU padding represents absolute voxel (0,0,0), with mask false.
-    int3 local = -patchCorner();
-    return uint2(inPatch(local) ? patchIndex(local) : 0, 0);
-}
 void writeGeometry(uint ray, int3 originFP, int3 stepFP) {
     float3 origin = (toFloat(originFP) - float3(patchCorner())) / float(PATCH_SIZE);
     float3 direction = toFloat(stepFP) / float(PATCH_SIZE);
     origin_zyx_norm[ray] = { origin.x, origin.y, origin.z };
     direction_zyx_norm[ray] = { direction.x, direction.y, direction.z };
 }
-void zeroFeatures(uint sample) {
-    for (uint feature = 0; feature < FEATURE_COUNT; ++feature)
-        ray_features[sample * FEATURE_COUNT + feature] = 0.0;
-}
 void buildRay(uint ray) {
-    float huValues[RAY_LENGTH];
-    uint validValues[RAY_LENGTH];
     RayGeometry geometry = ray_geometry[ray];
     int3 originFP = int3(geometry.originZ, geometry.originY, geometry.originX);
     int3 stepFP = int3(geometry.stepZ, geometry.stepY, geometry.stepX);
@@ -89,74 +80,26 @@ void buildRay(uint ray) {
     int3 corner = patchCorner();
     writeGeometry(ray, originFP, stepFP);
     uint validCount = 0;
-    float totalSum = 0.0;
     bool stopped = false;
     for (uint k = 0; k < RAY_LENGTH; ++k) {
         int3 posFP = originFP + stepFP * int(k + 1);
         int3 voxel = roundVoxel(posFP);
-        bool valid = !stopped && inVolume(voxel);
+        int3 local = voxel - corner;
+        // Match training: stop at the first volume or patch exit.
+        bool valid = !stopped && inVolume(voxel) && inPatch(local);
         uint sample = ray * RAY_LENGTH + k;
-        if (valid) {
-            float hu = sampleHU(toFloat(posFP));
-            int3 local = voxel - corner;
-            bool scatter = inPatch(local);
-            huValues[k] = hu;
-            validValues[k] = 1;
-            ray_hu[sample] = hu;
-            voxel_indices[sample] = uint2(scatter ? patchIndex(local) : 0, 0);
-            writeMask(sample, scatter);
-            validCount += 1;
-            totalSum += hu;
-        } else {
-            stopped = true;
-            huValues[k] = 0.0;
-            validValues[k] = 0;
-            ray_hu[sample] = 0.0;
-            voxel_indices[sample] = paddingIndex();
-            writeMask(sample, false);
-        }
+        float hu = valid ? sampleHU(toFloat(posFP)) : 0.0;
+        ray_hu[sample] = hu;
+        ray_features[sample * FEATURE_COUNT] = hu / h0;
+        voxel_indices[sample] = uint2(valid ? patchIndex(local) : 0, 0);
+        writeMask(sample, valid);
+        if (valid) validCount += 1;
+        else stopped = true;
     }
-    if (validCount == 0) {
-        for (uint k = 0; k < RAY_LENGTH; ++k) zeroFeatures(ray * RAY_LENGTH + k);
-        return;
-    }
-    float n = float(validCount);
-    float mean = totalSum / n;
-    float varianceSum = 0.0;
-    for (uint k = 0; k < RAY_LENGTH; ++k) {
-        if (validValues[k] != 0) {
-            float delta = huValues[k] - mean;
-            varianceSum += delta * delta;
-        }
-    }
-    float variance = varianceSum / n;
-    float prefixSum = 0.0;
-    float runningMax = NEG_INF;
-    float previousHU = 0.0;
-    float lengthMinusOne = max(n - 1.0, 1.0);
+    float lengthMinusOne = max(float(validCount) - 1.0, 1.0);
     for (uint k = 0; k < RAY_LENGTH; ++k) {
         uint sample = ray * RAY_LENGTH + k;
-        if (validValues[k] == 0) { zeroFeatures(sample); continue; }
-        float hu = huValues[k];
-        prefixSum += hu;
-        runningMax = max(runningMax, hu);
-        float count = float(k + 1);
-        float suffixSum = totalSum - prefixSum;
-        float suffixCount = max(n - count, 1.0);
-        float muL = prefixSum / count;
-        float muR = suffixSum / suffixCount;
-        float rawEta = count * max(n - count, 0.0) * (muL - muR) * (muL - muR);
-        float eta2 = variance > 1.0e-12 ? min(rawEta / (n * variance), 1.0) : 0.0;
-        float gradient = k > 0 ? (hu - previousHU) / h0 : 0.0;
-        uint base = sample * FEATURE_COUNT;
-        ray_features[base] = hu / h0;
-        ray_features[base + 1] = gradient;
-        ray_features[base + 2] = (prefixSum / count) / h0;
-        ray_features[base + 3] = (muL - muR) / h0;
-        ray_features[base + 4] = eta2;
-        ray_features[base + 5] = (runningMax - hu) / h0;
-        ray_features[base + 6] = float(k) / lengthMinusOne;
-        previousHU = hu;
+        ray_features[sample * FEATURE_COUNT + 1] = k < validCount ? float(k) / lengthMinusOne : 0.0;
     }
 }
 void buildPatch(uint index) {

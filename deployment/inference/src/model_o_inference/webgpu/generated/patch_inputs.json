@@ -564,18 +564,18 @@
       "precise",
       "-DPATCH_SIZE=48",
       "-DRAY_LENGTH=120",
-      "-DFEATURE_COUNT=7",
+      "-DFEATURE_COUNT=2",
       "-DFIXED_POINT_SCALE=65536",
       "-DWORKGROUP_SIZE=64"
     ],
     "constants": {
       "PATCH_SIZE": 48,
       "RAY_LENGTH": 120,
-      "FEATURE_COUNT": 7,
+      "FEATURE_COUNT": 2,
       "FIXED_POINT_SCALE": 65536,
       "WORKGROUP_SIZE": 64
     },
-    "source_sha256": "c040b50a034f9ff2dbf2f2fa191198dd5e01bcead5f518c81e728dca7832193c",
-    "wgsl_sha256": "594cb23637f3cfe686dad45ae6be15819cf9776e1067d6b8a99c7944644e9e96"
+    "source_sha256": "c218103a80509f0137a8a366f89dd605cff29d78e8dfaf4f7dcebb9888b1f4eb",
+    "wgsl_sha256": "cd95da33d7cd33792e2a8ea5152792753919dab5275770a7c9fe3d09173e2d15"
   }
 }

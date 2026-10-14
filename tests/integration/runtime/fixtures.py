@@ -116,7 +116,7 @@ def make_case(output: Path, kernel: tuple[int, int, int], dtype: str) -> dict[st
     }
 
 
-def generate(output: Path) -> list[dict[str, object]]:
+def generate(output: Path, model_o: Path | None = None) -> list[dict[str, object]]:
     output.mkdir(parents=True, exist_ok=True)
     cases = [
         make_case(output, kernel, dtype)
@@ -126,6 +126,10 @@ def generate(output: Path) -> list[dict[str, object]]:
     from model_o import generate as generate_model_o
 
     generate_model_o(output / "model_o")
+    if model_o is not None:
+        from model_o import attach_model
+
+        attach_model(output / "model_o", model_o)
     (output / "cases.json").write_text(json.dumps(cases, indent=2) + "\n")
     return cases
 
@@ -133,5 +137,6 @@ def generate(output: Path) -> list[dict[str, object]]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model-o", type=Path, help="Optional trained HU/position ONNX export")
     args = parser.parse_args()
-    print(json.dumps({"status": "generated", "cases": len(generate(args.output))}))
+    print(json.dumps({"status": "generated", "cases": len(generate(args.output, args.model_o))}))

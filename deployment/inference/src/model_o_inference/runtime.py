@@ -22,13 +22,13 @@ if TYPE_CHECKING:
     import numpy as np
     import SimpleITK as sitk
     from dawn_ort import DawnHost, GpuSession
-    from dawn_ort.host import Buffer, Kernel
+    from dawn_ort.host import Buffer
     from numpy.typing import NDArray
 
     from .dawn_inputs import DawnPatchInputs, PackedRayCase
     from .planning import PatchPlan
     from .preparation import RayContext
-    from .stitching import MaxMerger
+    from .stitching import MaskMerger
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class _PatchExecution:
 class _PatchRun:
     execution: _PatchExecution
     context: RayContext
-    merger: MaxMerger
+    merger: MaskMerger
     ct_buffer: Buffer
     total: int
     queue_depth: Literal[1, 2, 4]
@@ -59,18 +59,16 @@ class _PatchRun:
     last_log: float = 0.0
 
 
-def _mask_image(probability: NDArray[np.float32], reference: sitk.Image) -> sitk.Image:
+def _mask_image(mask_array: NDArray[np.bool_], reference: sitk.Image) -> sitk.Image:
     import numpy as np
     import SimpleITK as sitk
 
-    from .constants import THRESHOLD
-
-    mask = sitk.GetImageFromArray((probability > THRESHOLD).astype(np.uint8))
+    mask = sitk.GetImageFromArray(mask_array.astype(np.uint8))
     mask.CopyInformation(reference)
     return mask
 
 
-def _observe_patch(execution: _PatchExecution, merger: MaxMerger, progress: PatchProgress) -> None:
+def _observe_patch(execution: _PatchExecution, merger: MaskMerger, progress: PatchProgress) -> None:
     if execution.observer is not None:
         execution.observer.on_progress(
             progress, lambda: _mask_image(merger.finalize(), execution.image.reference)
@@ -112,46 +110,27 @@ def _ray_case(image: _Volume, context: RayContext, plan: PatchPlan, capacity: in
 
 
 @dataclass(frozen=True)
-class _PatchReadback:
-    probability: Buffer
-    invalid: Buffer
-
-
-@dataclass(frozen=True)
 class _GpuPatchInference:
     host: DawnHost
     builder: DawnPatchInputs
     session: GpuSession
-    consumer: Kernel
-    probability: Buffer
-    invalid: Buffer
-    consumer_workgroups: int
+    logits: Buffer
 
-    def submit(self, case: PackedRayCase, resources: ExitStack) -> _PatchReadback:
-        import numpy as np
-
+    def submit(self, case: PackedRayCase, resources: ExitStack) -> Buffer:
         self.builder.write_geometry(case.packed_geometry)
         self.builder.generate(case.center, case.h0)
-        self.host.write(self.invalid, np.zeros(1, dtype=np.uint32))
         self.session.submit()
-        self.consumer.dispatch(self.consumer_workgroups)
-        # Queue both copies before the next patch reuses the output buffers.
-        probability = self.host.stage_readback(self.probability)
-        resources.callback(probability.close)
-        invalid = self.host.stage_readback(self.invalid)
-        resources.callback(invalid.close)
-        return _PatchReadback(probability, invalid)
+        # Preserve this prediction before the next patch reuses the output.
+        readback = self.host.stage_readback(self.logits)
+        resources.callback(readback.close)
+        return readback
 
-    def collect(self, readback: _PatchReadback) -> NDArray[np.float32]:
-        import numpy as np
-
+    def collect(self, readback: Buffer) -> NDArray[np.bool_]:
         from .constants import PATCH_SIZE
+        from .stitching import mask_from_logits
 
-        result = self.host.read_staging(readback.probability).reshape((PATCH_SIZE,) * 3)
-        invalid = self.host.read_staging(readback.invalid, np.uint32)
-        if invalid[0] or not np.isfinite(result).all():
-            raise RuntimeError("ModelO emitted non-finite logits or probabilities")
-        return result
+        logits = self.host.read_staging(readback).reshape((PATCH_SIZE,) * 3)
+        return mask_from_logits(logits)
 
 
 def _gpu_pipeline(
@@ -163,29 +142,11 @@ def _gpu_pipeline(
     from .constants import OUTPUT_NAME, PATCH_SIZE
     from .dawn_inputs import DawnPatchInputs
     from .graph import create_model_o_session
-    from .shaders import load_shader
 
     logits = host.buffer(PATCH_SIZE**3 * np.dtype(np.float32).itemsize)
     resources.callback(logits.close)
-    probability = host.buffer(logits.size)
-    resources.callback(probability.close)
-    invalid = host.buffer(np.dtype(np.uint32).itemsize)
-    resources.callback(invalid.close)
     builder = DawnPatchInputs(host, case, ct_buffer=ct_buffer, initialize=False)
     resources.callback(builder.close)
-    shader = load_shader("sigmoid")
-    consumer = host.kernel(
-        shader.code,
-        shader.bindings(
-            {
-                "logits": logits,
-                "probability": probability,
-                "invalid": invalid,
-            }
-        ),
-        entry_point=shader.entry_point,
-    )
-    resources.callback(consumer.close)
     session = create_model_o_session(host, str(model_path), case.n_rays)
     resources.callback(session.close)
     session.bind(
@@ -196,9 +157,7 @@ def _gpu_pipeline(
             )
         },
     )
-    return _GpuPatchInference(
-        host, builder, session, consumer, probability, invalid, shader.workgroups(PATCH_SIZE**3)
-    )
+    return _GpuPatchInference(host, builder, session, logits)
 
 
 def _upload_ct(resources: ExitStack, host: DawnHost, image: _Volume) -> Buffer:
@@ -213,7 +172,7 @@ def _predict_windows(
     cases: Iterator[tuple[PatchPlan, PackedRayCase]],
     queue_depth: Literal[1, 2, 4],
     timings: dict[str, float],
-) -> Generator[tuple[PatchPlan, NDArray[np.float32]], None, None]:
+) -> Generator[tuple[PatchPlan, NDArray[np.bool_]], None, None]:
     """Copy all window outputs before mapping; the caller must close this iterator."""
     while True:
         submitted = time.perf_counter()
@@ -225,13 +184,13 @@ def _predict_windows(
             timings["patch_submission"] += time.perf_counter() - submitted
             for plan, readback in pending:
                 collected = time.perf_counter()
-                probability = pipeline.collect(readback)
+                patch_mask = pipeline.collect(readback)
                 timings["patch_collection"] += time.perf_counter() - collected
-                yield plan, probability
+                yield plan, patch_mask
 
 
 def _report_patch(
-    execution: _PatchExecution, merger: MaxMerger, progress: PatchProgress, last_log: float
+    execution: _PatchExecution, merger: MaskMerger, progress: PatchProgress, last_log: float
 ) -> float:
     _observe_patch(execution, merger, progress)
     if (
@@ -269,9 +228,9 @@ def _infer_patches(
     execution: _PatchExecution,
     *,
     queue_depth: Literal[1, 2, 4] = 1,
-) -> tuple[NDArray[np.float32], int, str, dict[str, float]]:
+) -> tuple[NDArray[np.bool_], int, str, dict[str, float]]:
     """Measure CPU wall time; collection includes queued GPU completion and mapping."""
-    from .stitching import MaxMerger
+    from .stitching import MaskMerger
 
     if type(queue_depth) is not int or queue_depth not in (1, 2, 4):
         raise ValueError("ModelO queue depth must be 1, 2 or 4")
@@ -285,7 +244,7 @@ def _infer_patches(
         capacity,
         queue_depth,
     )
-    merger = MaxMerger((image.array.shape[0], image.array.shape[1], image.array.shape[2]))
+    merger = MaskMerger((image.array.shape[0], image.array.shape[1], image.array.shape[2]))
     started = time.perf_counter()
     provider = ""
     timings = dict.fromkeys(
@@ -328,15 +287,15 @@ def _infer_group(host: DawnHost, capacity: int, plans: list[PatchPlan], run: _Pa
         predictions = resources.enter_context(
             closing(_predict_windows(pipeline, cases, run.queue_depth, run.timings))
         )
-        for plan, probability in predictions:
-            _merge_prediction(run, plan, probability)
+        for plan, patch_mask in predictions:
+            _merge_prediction(run, plan, patch_mask)
     return provider
 
 
-def _merge_prediction(run: _PatchRun, plan: PatchPlan, probability: NDArray[np.float32]) -> None:
+def _merge_prediction(run: _PatchRun, plan: PatchPlan, patch_mask: NDArray[np.bool_]) -> None:
     started = time.perf_counter()
     center = plan.center_zyx
-    run.merger.aggregate(probability, (int(center[0]), int(center[1]), int(center[2])))
+    run.merger.aggregate(patch_mask, (int(center[0]), int(center[1]), int(center[2])))
     run.timings["patch_merge"] += time.perf_counter() - started
     run.completed += 1
     progress = PatchProgress(run.completed, run.total, time.perf_counter() - run.started)
@@ -423,7 +382,7 @@ def predict_model_o(
     """Run patch inference, optionally observing lazy cumulative mask previews."""
     import SimpleITK as sitk
 
-    from .constants import THRESHOLD
+    from .constants import LOGIT_THRESHOLD
 
     started = time.perf_counter()
     logger.info("ModelO reading submitted CT")
@@ -441,7 +400,7 @@ def predict_model_o(
         resources.callback(ort.unregister_execution_provider_library, "dawn")
         host = DawnHost(assets_path / "webgpu.py")
         resources.callback(host.close)
-        probability, capacity, provider_name, gpu_timings = _infer_patches(
+        mask_array, capacity, provider_name, gpu_timings = _infer_patches(
             host,
             context,
             plans,
@@ -452,7 +411,7 @@ def predict_model_o(
     timings.update(
         gpu_timings, ct_read=read_seconds, inference=time.perf_counter() - inference_started
     )
-    mask = _mask_image(probability, image.reference)
+    mask = _mask_image(mask_array, image.reference)
     sitk.WriteImage(mask, str(output_path), useCompression=True)
     timings["total"] = time.perf_counter() - started
     logger.info("ModelO finished %s patches in %.2f s", len(plans), timings["total"])
@@ -468,6 +427,6 @@ def predict_model_o(
         "overlap": parameters.overlap,
         "timings_seconds": timings,
         "timings_kind": "wall_clock",
-        "threshold": THRESHOLD,
-        "steps": ["gpu_ray_inputs", "gpu_model_o", "gpu_sigmoid", "max_union", "threshold"],
+        "logit_threshold": LOGIT_THRESHOLD,
+        "steps": ["gpu_ray_inputs", "gpu_model_o", "logit_threshold", "binary_union"],
     }

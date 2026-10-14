@@ -50,6 +50,9 @@ class GpuSession:
             options.get_session_config_entry("session.disable_cpu_ep_fallback")
         except RuntimeError:
             options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        # The pinned native provider can return only bias after GPU weight
+        # prepacking. Keep original initializers alive and use its direct path.
+        options.add_session_config_entry("session.disable_prepacking", "1")
         self._session: ort.InferenceSession | None = create_session(
             host,
             str(model) if isinstance(model, Path) else model,

@@ -229,6 +229,10 @@ def test_model_and_provider_choices_are_forwarded_without_preparation(monkeypatc
     assert create.call_args.args[1] is source
     assert create.call_args.kwargs["preferredLayout"] == "NHWC"
     assert "enableInt64" not in create.call_args.kwargs
+    assert (
+        create.call_args.kwargs["options"].get_session_config_entry("session.disable_prepacking")
+        == "1"
+    )
 
 
 @pytest.mark.parametrize("policy", [None, "0", "1"])

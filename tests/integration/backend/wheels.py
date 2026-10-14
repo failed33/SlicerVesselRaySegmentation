@@ -42,7 +42,7 @@ def check_installed_packages() -> dict[str, str]:
         locations[name] = str(path.relative_to(sys.prefix))
     from model_o_inference.shaders import load_shader
 
-    for name in ("patch_inputs", "sigmoid"):
+    for name in ("patch_inputs",):
         assert "@compute" in load_shader(name).code
     return locations
 

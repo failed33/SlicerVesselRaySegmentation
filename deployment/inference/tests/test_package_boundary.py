@@ -69,7 +69,7 @@ from model_o_inference.constants import model_o_geometry
 from model_o_inference.geometry import RayGeometryConfig
 from model_o_inference.shaders import load_shader
 assert model_o_geometry().num_rays > 0
-assert all(load_shader(name).code for name in ("patch_inputs", "sigmoid"))
+assert all(load_shader(name).code for name in ("patch_inputs",))
 assert not {'numpy', 'scipy', 'onnxruntime', 'SimpleITK', 'pydantic', 'mlflow', 'torch'} & sys.modules.keys()
 """,
             str(_SOURCE),

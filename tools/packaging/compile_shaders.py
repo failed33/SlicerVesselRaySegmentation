@@ -78,7 +78,7 @@ def compile_shaders(compiler: Path, output: Path) -> None:
         raise ValueError(f"Expected Slang {VERSION}, got {version.stdout}{version.stderr}")
     values = constants()
     output.mkdir(parents=True, exist_ok=True)
-    for name in ("patch_inputs", "sigmoid"):
+    for name in ("patch_inputs",):
         source = SHADERS / f"{name}.slang"
         code, reflection = output / f"{name}.wgsl", output / f"{name}.json"
         flags = [*FLAGS, *(f"-D{key}={value}" for key, value in values.items())]

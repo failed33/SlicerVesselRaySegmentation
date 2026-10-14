@@ -45,7 +45,7 @@ def _host_double():
 def _pipeline_double(predict):
     return SimpleNamespace(
         submit=lambda case, _resources: predict(case),
-        collect=lambda probability: probability,
+        collect=lambda mask: mask,
         session=SimpleNamespace(
             native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"])
         ),
@@ -275,19 +275,19 @@ def test_gpu_patch_progress_logs_first_periodic_and_last_completion(monkeypatch,
     from model_o_inference.planning import PatchPlan
 
     plans = [PatchPlan(np.array([6, 6, 6]), np.array([index]), 250.0) for index in range(4)]
-    pipeline = _pipeline_double(lambda _case: np.zeros((48,) * 3, dtype=np.float32))
+    pipeline = _pipeline_double(lambda _case: np.zeros((48,) * 3, dtype=bool))
     monkeypatch.setattr(runtime, "_gpu_pipeline", lambda *_args: pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda _image, _context, plan, _capacity: plan)
     clock = [0.0]
-    pipeline.collect = lambda probability: (clock.__setitem__(0, clock[0] + 5), probability)[1]
+    pipeline.collect = lambda mask: (clock.__setitem__(0, clock[0] + 5), mask)[1]
     monkeypatch.setattr(runtime.time, "perf_counter", lambda: clock[0])
     caplog.set_level("INFO", logger=runtime.__name__)
     volume = SimpleNamespace(array=np.zeros((12,) * 3, dtype=np.float32))
 
-    probability, capacity, provider, _timings = runtime._infer_patches(
+    mask, capacity, provider, _timings = runtime._infer_patches(
         _host_double(), None, plans, runtime._PatchExecution(volume, Path("unused.onnx"))
     )
-    assert probability.shape == (12,) * 3
+    assert mask.shape == (12,) * 3
     assert capacity == 1
     assert provider == "WebGpuExecutionProvider"
     messages = [record.message for record in caplog.records if "ModelO patches" in record.message]
@@ -349,9 +349,8 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
     monkeypatch, caplog, preview_stride, queue_depth
 ) -> None:
     from model_o_inference import runtime
-    from model_o_inference.constants import THRESHOLD
     from model_o_inference.planning import PatchPlan
-    from model_o_inference.stitching import MaxMerger
+    from model_o_inference.stitching import MaskMerger
 
     counts = [1024, 56320, 8192, 32768, 17408, 3072]
     plans = [
@@ -366,7 +365,7 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
     volume = SimpleNamespace(array=sitk.GetArrayFromImage(reference), reference=reference)
     active, closed, predicted = [], [], []
     progress_updates, previews, finalized = [], [], []
-    original_finalize = MaxMerger.finalize
+    original_finalize = MaskMerger.finalize
 
     def finalize(merger):
         finalized.append(True)
@@ -397,16 +396,16 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
             assert active == [capacity] and case_capacity == capacity
             assert len(plan.ray_indices) <= capacity
             predicted.append(plan)
-            return np.full((48,) * 3, plan.h0, dtype=np.float32)
+            return np.full((48,) * 3, plan.h0 > 0.5, dtype=bool)
 
         resources.callback(close)
         return _pipeline_double(predict)
 
     monkeypatch.setattr(runtime, "_ray_case", ray_case)
     monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
-    monkeypatch.setattr(MaxMerger, "finalize", finalize)
+    monkeypatch.setattr(MaskMerger, "finalize", finalize)
     caplog.set_level("INFO", logger=runtime.__name__)
-    probability, capacity, provider, timings = runtime._infer_patches(
+    mask, capacity, provider, timings = runtime._infer_patches(
         host,
         context,
         plans,
@@ -429,14 +428,14 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
     arrays = [sitk.GetArrayFromImage(preview) for preview in previews]
     assert all(np.all(previous <= current) for previous, current in zip(arrays, arrays[1:]))
     if arrays:
-        np.testing.assert_array_equal(arrays[-1], (probability > THRESHOLD).astype(np.uint8))
+        np.testing.assert_array_equal(arrays[-1], mask.astype(np.uint8))
         # Editing a returned image cannot change the worker's aggregation buffer.
         previews[-1][32, 32, 32] = 0
-        assert probability[32, 32, 32] > THRESHOLD
-    expected = MaxMerger(volume.array.shape)
+        assert mask[32, 32, 32]
+    expected = MaskMerger(volume.array.shape)
     for plan in plans:
-        expected.aggregate(np.full((48,) * 3, plan.h0, dtype=np.float32), tuple(plan.center_zyx))
-    np.testing.assert_array_equal(probability, expected.finalize())
+        expected.aggregate(np.full((48,) * 3, plan.h0 > 0.5, dtype=bool), tuple(plan.center_zyx))
+    np.testing.assert_array_equal(mask, expected.finalize())
     plan_indices = {id(plan): index for index, plan in enumerate(plans)}
     assert [plan_indices[id(plan)] for plan in predicted] == [0, 2, 5, 3, 4, 1]
     assert closed == [16384, 32768, 56320] and not active
@@ -492,7 +491,7 @@ def test_preview_observer_failure_stops_patches_and_releases_gpu_group(
 
         def predict(case):
             predicted.append(case)
-            return np.full((48,) * 3, 0.75, dtype=np.float32)
+            return np.ones((48,) * 3, dtype=bool)
 
         return _pipeline_double(predict)
 
@@ -525,7 +524,7 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
     monkeypatch.setattr(dawn_ort, "DawnHost", lambda _path: _host_double())
 
     def pipeline(_resources, _host, _model, _case, _ct_buffer):
-        return _pipeline_double(lambda _case: np.full((48,) * 3, 0.75, dtype=np.float32))
+        return _pipeline_double(lambda _case: np.ones((48,) * 3, dtype=bool))
 
     monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
     baseline = predict_model_o(

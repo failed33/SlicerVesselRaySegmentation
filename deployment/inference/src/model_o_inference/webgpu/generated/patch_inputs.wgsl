@@ -40,11 +40,11 @@ struct PackedZYX_std430_0
 
 @binding(8) @group(0) var<storage, read_write> ray_hu_0 : array<f32>;
 
+@binding(3) @group(0) var<storage, read_write> ray_features_0 : array<f32>;
+
 @binding(7) @group(0) var<storage, read_write> voxel_indices_0 : array<vec2<u32>>;
 
 @binding(4) @group(0) var<storage, read_write> ray_mask_0 : array<u32>;
-
-@binding(3) @group(0) var<storage, read_write> ray_features_0 : array<f32>;
 
 @binding(9) @group(0) var<storage, read_write> ct_patch_0 : array<f32>;
 
@@ -150,37 +150,37 @@ fn inVolume_0( v_2 : vec3<i32>) -> bool
     return _S5;
 }
 
-fn volumeIndex_0( v_3 : vec3<i32>) -> u32
+fn inPatch_0( v_3 : vec3<i32>) -> bool
 {
-    return u32(v_3.x) * config_0[i32(0)].height_0 * config_0[i32(0)].width_0 + u32(v_3.y) * config_0[i32(0)].width_0 + u32(v_3.z);
+    var _S6 : bool;
+    if((all((v_3 >= vec3<i32>(i32(0))))))
+    {
+        _S6 = (all((v_3 < vec3<i32>(i32(48)))));
+    }
+    else
+    {
+        _S6 = false;
+    }
+    return _S6;
 }
 
-fn loadClamped_0( v_4 : vec3<i32>) -> f32
+fn volumeIndex_0( v_4 : vec3<i32>) -> u32
 {
-    return volume_zyx_0[volumeIndex_0(clamp(v_4, vec3<i32>(i32(0)), dimensions_0() - vec3<i32>(i32(1))))];
+    return u32(v_4.x) * config_0[i32(0)].height_0 * config_0[i32(0)].width_0 + u32(v_4.y) * config_0[i32(0)].width_0 + u32(v_4.z);
+}
+
+fn loadClamped_0( v_5 : vec3<i32>) -> f32
+{
+    return volume_zyx_0[volumeIndex_0(clamp(v_5, vec3<i32>(i32(0)), dimensions_0() - vec3<i32>(i32(1))))];
 }
 
 fn sampleHU_0( pos_0 : vec3<f32>) -> f32
 {
-    var _S6 : vec3<i32> = vec3<i32>(floor(pos_0));
-    var fraction_0 : vec3<f32> = pos_0 - vec3<f32>(_S6);
-    var _S7 : f32 = fraction_0.z;
-    var _S8 : f32 = fraction_0.y;
-    return mix(mix(mix(loadClamped_0(_S6), loadClamped_0(_S6 + vec3<i32>(i32(0), i32(0), i32(1))), _S7), mix(loadClamped_0(_S6 + vec3<i32>(i32(0), i32(1), i32(0))), loadClamped_0(_S6 + vec3<i32>(i32(0), i32(1), i32(1))), _S7), _S8), mix(mix(loadClamped_0(_S6 + vec3<i32>(i32(1), i32(0), i32(0))), loadClamped_0(_S6 + vec3<i32>(i32(1), i32(0), i32(1))), _S7), mix(loadClamped_0(_S6 + vec3<i32>(i32(1), i32(1), i32(0))), loadClamped_0(_S6 + vec3<i32>(i32(1), i32(1), i32(1))), _S7), _S8), fraction_0.x);
-}
-
-fn inPatch_0( v_5 : vec3<i32>) -> bool
-{
-    var _S9 : bool;
-    if((all((v_5 >= vec3<i32>(i32(0))))))
-    {
-        _S9 = (all((v_5 < vec3<i32>(i32(48)))));
-    }
-    else
-    {
-        _S9 = false;
-    }
-    return _S9;
+    var _S7 : vec3<i32> = vec3<i32>(floor(pos_0));
+    var fraction_0 : vec3<f32> = pos_0 - vec3<f32>(_S7);
+    var _S8 : f32 = fraction_0.z;
+    var _S9 : f32 = fraction_0.y;
+    return mix(mix(mix(loadClamped_0(_S7), loadClamped_0(_S7 + vec3<i32>(i32(0), i32(0), i32(1))), _S8), mix(loadClamped_0(_S7 + vec3<i32>(i32(0), i32(1), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(0), i32(1), i32(1))), _S8), _S9), mix(mix(loadClamped_0(_S7 + vec3<i32>(i32(1), i32(0), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(1), i32(0), i32(1))), _S8), mix(loadClamped_0(_S7 + vec3<i32>(i32(1), i32(1), i32(0))), loadClamped_0(_S7 + vec3<i32>(i32(1), i32(1), i32(1))), _S8), _S9), fraction_0.x);
 }
 
 fn patchIndex_0( v_6 : vec3<i32>) -> u32
@@ -200,53 +200,18 @@ fn writeMask_0( index_0 : u32,  valid_0 : bool)
     return;
 }
 
-fn paddingIndex_0() -> vec2<u32>
-{
-    var local_0 : vec3<i32> = (vec3<i32>(0) - patchCorner_0());
-    var _S11 : u32;
-    if(inPatch_0(local_0))
-    {
-        _S11 = patchIndex_0(local_0);
-    }
-    else
-    {
-        _S11 = u32(0);
-    }
-    return vec2<u32>(_S11, u32(0));
-}
-
-fn zeroFeatures_0( sample_0 : u32)
-{
-    var feature_0 : u32 = u32(0);
-    for(;;)
-    {
-        if(feature_0 < u32(7))
-        {
-        }
-        else
-        {
-            break;
-        }
-        ray_features_0[sample_0 * u32(7) + feature_0] = 0.0f;
-        feature_0 = feature_0 + u32(1);
-    }
-    return;
-}
-
 fn buildRay_0( ray_1 : u32)
 {
-    var huValues_0 : array<f32, i32(120)>;
-    var validValues_0 : array<u32, i32(120)>;
+    var hu_0 : f32;
     var geometry_0 : RayGeometry_std430_0 = ray_geometry_0[ray_1];
     var originFP_1 : vec3<i32> = vec3<i32>(geometry_0.originZ_0, geometry_0.originY_0, geometry_0.originX_0);
     var stepFP_1 : vec3<i32> = vec3<i32>(geometry_0.stepZ_0, geometry_0.stepY_0, geometry_0.stepX_0);
-    var _S12 : f32 = max(abs(geometry_0.originHU_0), 1.0f);
-    var _S13 : vec3<i32> = patchCorner_0();
+    var _S11 : f32 = max(abs(geometry_0.originHU_0), 1.0f);
+    var _S12 : vec3<i32> = patchCorner_0();
     writeGeometry_0(ray_1, originFP_1, stepFP_1);
     var stopped_0 : bool = false;
     var k_0 : u32 = u32(0);
     var validCount_0 : u32 = u32(0);
-    var totalSum_0 : f32 = 0.0f;
     for(;;)
     {
         if(k_0 < u32(120))
@@ -256,74 +221,62 @@ fn buildRay_0( ray_1 : u32)
         {
             break;
         }
-        var _S14 : u32 = k_0 + u32(1);
-        var posFP_0 : vec3<i32> = originFP_1 + stepFP_1 * vec3<i32>(i32(_S14));
+        var _S13 : u32 = k_0 + u32(1);
+        var posFP_0 : vec3<i32> = originFP_1 + stepFP_1 * vec3<i32>(i32(_S13));
         var voxel_0 : vec3<i32> = roundVoxel_0(posFP_0);
-        var valid_1 : bool;
+        var local_0 : vec3<i32> = voxel_0 - _S12;
+        var _S14 : bool;
         if(!stopped_0)
         {
-            valid_1 = inVolume_0(voxel_0);
+            _S14 = inVolume_0(voxel_0);
+        }
+        else
+        {
+            _S14 = false;
+        }
+        var valid_1 : bool;
+        if(_S14)
+        {
+            valid_1 = inPatch_0(local_0);
         }
         else
         {
             valid_1 = false;
         }
-        var sample_1 : u32 = ray_1 * u32(120) + k_0;
+        var sample_0 : u32 = ray_1 * u32(120) + k_0;
         if(valid_1)
         {
-            var hu_0 : f32 = sampleHU_0(toFloat_0(posFP_0));
-            var local_1 : vec3<i32> = voxel_0 - _S13;
-            var scatter_0 : bool = inPatch_0(local_1);
-            huValues_0[k_0] = hu_0;
-            validValues_0[k_0] = u32(1);
-            ray_hu_0[sample_1] = hu_0;
-            var _S15 : u32;
-            if(scatter_0)
-            {
-                _S15 = patchIndex_0(local_1);
-            }
-            else
-            {
-                _S15 = u32(0);
-            }
-            voxel_indices_0[sample_1] = vec2<u32>(_S15, u32(0));
-            writeMask_0(sample_1, scatter_0);
-            var totalSum_1 : f32 = totalSum_0 + hu_0;
-            validCount_0 = validCount_0 + u32(1);
-            totalSum_0 = totalSum_1;
+            hu_0 = sampleHU_0(toFloat_0(posFP_0));
         }
         else
         {
-            huValues_0[k_0] = 0.0f;
-            validValues_0[k_0] = u32(0);
-            ray_hu_0[sample_1] = 0.0f;
-            voxel_indices_0[sample_1] = paddingIndex_0();
-            writeMask_0(sample_1, false);
+            hu_0 = 0.0f;
+        }
+        ray_hu_0[sample_0] = hu_0;
+        ray_features_0[sample_0 * u32(2)] = hu_0 / _S11;
+        var _S15 : u32;
+        if(valid_1)
+        {
+            _S15 = patchIndex_0(local_0);
+        }
+        else
+        {
+            _S15 = u32(0);
+        }
+        voxel_indices_0[sample_0] = vec2<u32>(_S15, u32(0));
+        writeMask_0(sample_0, valid_1);
+        if(valid_1)
+        {
+            validCount_0 = validCount_0 + u32(1);
+        }
+        else
+        {
             stopped_0 = true;
         }
-        k_0 = _S14;
+        k_0 = _S13;
     }
-    if(validCount_0 == u32(0))
-    {
-        k_0 = u32(0);
-        for(;;)
-        {
-            if(k_0 < u32(120))
-            {
-            }
-            else
-            {
-                break;
-            }
-            zeroFeatures_0(ray_1 * u32(120) + k_0);
-            k_0 = k_0 + u32(1);
-        }
-        return;
-    }
-    var n_0 : f32 = f32(validCount_0);
-    var _S16 : f32 = totalSum_0 / n_0;
+    var _S16 : f32 = max(f32(validCount_0) - 1.0f, 1.0f);
     k_0 = u32(0);
-    var varianceSum_0 : f32 = 0.0f;
     for(;;)
     {
         if(k_0 < u32(120))
@@ -333,71 +286,15 @@ fn buildRay_0( ray_1 : u32)
         {
             break;
         }
-        if((validValues_0[k_0]) != u32(0))
+        if(k_0 < validCount_0)
         {
-            var delta_0 : f32 = huValues_0[k_0] - _S16;
-            varianceSum_0 = varianceSum_0 + delta_0 * delta_0;
-        }
-        k_0 = k_0 + u32(1);
-    }
-    var _S17 : f32 = varianceSum_0 / n_0;
-    var _S18 : f32 = max(n_0 - 1.0f, 1.0f);
-    var runningMax_0 : f32 = -1.00000001504746622e+30f;
-    var previousHU_0 : f32 = 0.0f;
-    k_0 = u32(0);
-    var prefixSum_0 : f32 = 0.0f;
-    for(;;)
-    {
-        if(k_0 < u32(120))
-        {
+            hu_0 = f32(k_0) / _S16;
         }
         else
         {
-            break;
+            hu_0 = 0.0f;
         }
-        var sample_2 : u32 = ray_1 * u32(120) + k_0;
-        if((validValues_0[k_0]) == u32(0))
-        {
-            zeroFeatures_0(sample_2);
-            k_0 = k_0 + u32(1);
-            continue;
-        }
-        var hu_1 : f32 = huValues_0[k_0];
-        var prefixSum_1 : f32 = prefixSum_0 + huValues_0[k_0];
-        var _S19 : f32 = max(runningMax_0, huValues_0[k_0]);
-        var count_0 : f32 = f32(k_0 + u32(1));
-        var _S20 : f32 = n_0 - count_0;
-        var _S21 : f32 = prefixSum_1 / count_0 - (totalSum_0 - prefixSum_1) / max(_S20, 1.0f);
-        var rawEta_0 : f32 = count_0 * max(_S20, 0.0f) * _S21 * _S21;
-        var eta2_0 : f32;
-        if(_S17 > 9.999999960041972e-13f)
-        {
-            eta2_0 = min(rawEta_0 / (n_0 * _S17), 1.0f);
-        }
-        else
-        {
-            eta2_0 = 0.0f;
-        }
-        var gradient_0 : f32;
-        if(k_0 > u32(0))
-        {
-            gradient_0 = (hu_1 - previousHU_0) / _S12;
-        }
-        else
-        {
-            gradient_0 = 0.0f;
-        }
-        var base_0 : u32 = sample_2 * u32(7);
-        ray_features_0[base_0] = hu_1 / _S12;
-        ray_features_0[base_0 + u32(1)] = gradient_0;
-        ray_features_0[base_0 + u32(2)] = prefixSum_1 / count_0 / _S12;
-        ray_features_0[base_0 + u32(3)] = _S21 / _S12;
-        ray_features_0[base_0 + u32(4)] = eta2_0;
-        ray_features_0[base_0 + u32(5)] = (_S19 - hu_1) / _S12;
-        ray_features_0[base_0 + u32(6)] = f32(k_0) / _S18;
-        runningMax_0 = _S19;
-        previousHU_0 = hu_1;
-        prefixSum_0 = prefixSum_1;
+        ray_features_0[(ray_1 * u32(120) + k_0) * u32(2) + u32(1)] = hu_0;
         k_0 = k_0 + u32(1);
     }
     return;
@@ -418,10 +315,10 @@ fn buildPatch_0( index_1 : u32)
     {
         value_1 = 0.0f;
     }
-    var _S22 : PatchConfig_std430_0 = config_0[i32(0)];
-    if((_S22.h0_0) > 9.99999997475242708e-07f)
+    var _S17 : PatchConfig_std430_0 = config_0[i32(0)];
+    if((_S17.h0_0) > 9.99999997475242708e-07f)
     {
-        value_1 = value_1 / _S22.h0_0;
+        value_1 = value_1 / _S17.h0_0;
     }
     ct_patch_0[index_1] = value_1;
     return;
@@ -431,14 +328,14 @@ fn buildPatch_0( index_1 : u32)
 @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) id_0 : vec3<u32>)
 {
-    var _S23 : PatchConfig_std430_0 = config_0[i32(0)];
-    var _S24 : u32 = id_0.x;
-    if(_S24 < (_S23.rayCount_0))
+    var _S18 : PatchConfig_std430_0 = config_0[i32(0)];
+    var _S19 : u32 = id_0.x;
+    if(_S19 < (_S18.rayCount_0))
     {
-        buildRay_0(_S24);
+        buildRay_0(_S19);
         return;
     }
-    var patchTask_0 : u32 = _S24 - _S23.rayCount_0;
+    var patchTask_0 : u32 = _S19 - _S18.rayCount_0;
     if(patchTask_0 < u32(110592))
     {
         buildPatch_0(patchTask_0);

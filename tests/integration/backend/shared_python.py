@@ -60,7 +60,7 @@ def check_numerical_profile(application: Path) -> dict[str, object]:
     if unexpected:
         raise AssertionError(f"Numerical preparation imported unrelated packages: {unexpected}")
     load_shader = importlib.import_module("model_o_inference.shaders").load_shader
-    if not all(load_shader(name).code for name in ("patch_inputs", "sigmoid")):
+    if not all(load_shader(name).code for name in ("patch_inputs",)):
         raise AssertionError("The installed wheel omitted ModelO WGSL")
     return {
         "status": "passed",

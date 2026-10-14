@@ -263,12 +263,11 @@ under ignored `build/shader-research/`, including `compiler.json`,
 
 ### Production shader build and contract
 
-The ModelO ray builder and sigmoid consumer are authored in
-`deployment/inference/src/model_o_inference/webgpu/patch_inputs.slang` and
-`sigmoid.slang`. Slang 2026.12 generates the WGSL and reflection resources in
+The ModelO ray builder is authored in
+`deployment/inference/src/model_o_inference/webgpu/patch_inputs.slang`. Slang 2026.12 generates the WGSL and reflection resources in
 `webgpu/generated/`. Python does not rewrite shader source at runtime.
 
-Regenerate after editing either shader or the shared constants:
+Regenerate after editing the shader or the shared constants:
 
 ```sh
 python tools/packaging/compile_shaders.py
@@ -294,7 +293,7 @@ reject ray lengths not divisible by four.
 
 | Owner | Responsibility |
 | --- | --- |
-| Slang sources | Sampling, features, sigmoid and final GPU storage layout |
+| Slang sources | Sampling, two features and final GPU storage layout |
 | Reflection | Resource names and binding indices, workgroup size, config field offsets |
 | Python tensor contract | ONNX names, logical shapes, dtypes and byte lengths |
 | Existing GPU hosts | Shared device/buffer ownership, dispatch, ORT binding and readback |
@@ -310,13 +309,13 @@ use the reflected workgroup size.
 ### Production shader acceptance
 
 `tests/integration/runtime/fixtures.py` generates the existing shared ORT cases
-and `model_o/` fixtures from an independent NumPy interpolation/statistics oracle.
+and `model_o/` fixtures from an independent NumPy sampling oracle.
 The native runner executes the installed Python package. SlicerWeb's Python job
 worker loads its installed shader resources and supplies them to the browser
 adapter, which runs the same fixtures on the same device as ORT.
 
 The four production cases exercise 65-ray workgroup tails, negative Q16 ties,
-zero-valid rays, volume exits, patch padding, constant and varying CT volumes,
+zero-valid rays, patch and volume exits, patch padding, constant and varying CT volumes,
 zero patch normalization, all seven ONNX input layouts, and repeated buffer
 reuse across changed configurations. A synthetic seven-input ONNX graph casts
 and reduces each actual shader output on the shared device, verifying ORT's
@@ -324,32 +323,62 @@ interpretation of all seven layouts, including bool bytes and int64 words. CPU
 fallback is disabled and scalar outputs remain in caller-owned GPU buffers.
 The browser bridge sets `enableInt64: true`; the pinned ORT ESM patch forwards
 this option to the C++ provider, matching native ModelO's `enableInt64="1"`.
-Native acceptance also verifies that closing
-the builder preserves a borrowed CT buffer. Sigmoid tests check finite outputs,
-NaN and both infinities, including resetting the invalid flag for a later valid
-submission. These checks run inside the packaged stable/nightly desktop and
+Native acceptance also verifies that closing the builder preserves a borrowed
+CT buffer. Shared Python thresholds logits strictly above zero, rejects NaN and
+both infinities, and unions boolean patch masks. There is one output readback
+per patch, with no sigmoid dispatch, probability buffer or invalid-flag buffer. These checks run inside the packaged stable/nightly desktop and
 SlicerWeb backend workflow alongside the existing FP32/FP16 ORT tests.
 
-Native `GpuSession` completes the queue once after ORT session initialization,
-which includes initializer uploads and GPU weight prepacking. This prevents the
-bias-only ConvTranspose result observed intermittently without that boundary on
-Metal. The underlying provider cause remains unassigned. Repeated inference and
-consumer dispatches still run without caller completion waits between them;
-acceptance counters measure that submission phase separately from initialization.
+Native `GpuSession` sets upstream `session.disable_prepacking=1` because optional
+GPU weight prepacking produced intermittent bias-only ConvTranspose outputs on
+Metal. Waiting after initialization alone did not prevent recurrence. Browser
+acceptance uses the same policy. Initialization still completes uploads once
+before exposing the session; repeated inference does not add caller completion
+waits. Counters measure submissions separately from initialization. The provider's
+internal cause and the performance cost of bypassing prepacking remain open.
 
-There is one explicit legacy numerical exception. On a flat HU profile, FP32
-summation/division can create a tiny apparent variance and an eta-squared feature
-as high as 1, while the float64 oracle returns zero. The original WGSL and the
-Slang port produced byte-identical values for every output in the four local
-Metal comparison cases, including this defect. CPU parity checks exclude only
-eta at valid samples of flat profiles and require those values to remain finite
-in [0,1]. Report fields identify that exception; the remaining feature samples
-and all other tensors retain their normal tolerances. Fixing the statistic or
-changing the patch-exit feature policy requires coordinated dataset/training
-validation, rather than a silent migration change.
+The ray tensor contains only normalized HU and position. The position denominator
+uses the number of samples before the first patch or volume exit, matching the
+training adapter. Invalid HU/features are zero; invalid scatter indices are zero
+and always masked. Gradient, prefix/suffix statistics, Fisher score and running-max
+drop are removed, so there is no flat-profile CPU-parity exception.
 
-Local migration evidence belongs under ignored `build/shader-migration/`,
-including `comparison.json`, `native-installed.json` and the SlicerWeb report.
+`graph.py` requires exactly the seven named inputs, a two-channel feature tensor,
+matching tensor dtypes and `mask_logits` output, plus ONNX metadata
+`feature_channels='["hu_normalized", "position"]'`. Two channels alone cannot
+identify the feature semantics. Legacy seven-channel and unnamed exports fail
+explicitly instead of reaching a GPU shape error.
+
+For private trained-model acceptance, generate fixtures with:
+
+```sh
+python tests/integration/runtime/fixtures.py --output build/runtime-fixtures \
+  --model-o /path/to/selected/modelo.onnx
+```
+
+The generator validates and prepares the supplied graph, stages it under ignored
+build output and computes CPU ONNX references. Native acceptance uses the actual
+production submission, readback and binary-mask path. Browser acceptance runs the
+same model with caller-owned GPU buffers and checks its masks in the SlicerWeb
+Python worker. Neither path permits CPU fallback. Trained weights are not part
+of the public repository or default synthetic CI fixtures.
+
+Model logits use `atol=0.0005`, `rtol=0.003`, with exact binary-mask agreement.
+These limits are distinct from the tighter shader-input comparisons. The local
+trained-model stress fixtures had up to 0.066 native/CPU logit difference even
+when CPU uploaded identical inputs; they contained no predicted foreground.
+Reports include foreground counts so this limitation remains visible. Matched
+patient inputs and foreground cases remain necessary for prediction-quality
+acceptance and provider-numerics investigation.
+
+Strict zero thresholding implements the mathematical 0.5 probability boundary.
+It deliberately keeps tiny positive logits that the previous FP32 sigmoid could
+round to exactly 0.5. Boundary tests cover both signed zeros, positive/negative
+small values, NaN and infinities. Boolean union matches maximum-logit decisions
+and uses one byte per accumulated voxel instead of four.
+
+Local cleanup evidence belongs under ignored `build/model-o-cleanup/`, including
+checkpoint/export provenance, installed native reports and the SlicerWeb report.
 Shader compilation, numerical comparison, resource packaging and installed-host
 execution are separate gates. Synthetic fixtures establish these interfaces;
 they do not establish patient-level prediction quality or clinical equivalence.

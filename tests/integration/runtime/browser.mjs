@@ -53,7 +53,7 @@ async function runCase(device, spec, counters) {
     session = await ort.InferenceSession.create(new Uint8Array(model), {
       executionProviders: [{ name: "webgpu", device, preferredLayout: "NCHW" }],
       preferredOutputLocation: "gpu-buffer", enableGraphCapture: false,
-      graphOptimizationLevel: "basic", extra: { session: { disable_cpu_ep_fallback: "1" } },
+      graphOptimizationLevel: "basic", extra: { session: { disable_cpu_ep_fallback: "1", disable_prepacking: "1" } },
     });
     const itemsize = spec.dtype === "float16" ? 2 : 4;
     const x = storage(spec.input_elements * itemsize);
