@@ -1,5 +1,10 @@
 """Slicer workflow and independently importable MONAI transport."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .logic import VesselRaySegmentationLogic
+
 __all__ = ["VesselRaySegmentationLogic"]
 
 

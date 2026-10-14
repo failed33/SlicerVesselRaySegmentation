@@ -71,8 +71,9 @@ try:
         if os.environ.get("VRS_RUNTIME_REQUIRE_F16") == "1":
             command.append("--require-f16")
         subprocess.run(command, check=True, timeout=300)
-        result["runtime"] = json.loads(runtime_report.read_text())
-        result["runtime"]["python_host"] = "desktop-slicer-bundled-worker"
+        runtime_result = json.loads(runtime_report.read_text())
+        runtime_result["python_host"] = "desktop-slicer-bundled-worker"
+        result["runtime"] = runtime_result
     screenshot = os.environ.get("VRS_GUI_SCREENSHOT")
     if screenshot:
         window = slicer.util.mainWindow()

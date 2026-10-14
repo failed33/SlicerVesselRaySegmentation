@@ -84,7 +84,7 @@ def label_server():
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        def log_message(self, *_args):
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -126,7 +126,9 @@ def test_actual_multipart_upload_and_response(label_server, tmp_path, filename, 
     parts = {
         part.get_param("name", header="content-disposition"): part for part in message.iter_parts()
     }
-    assert json.loads(parts["params"].get_payload(decode=True)) == parameters
+    payload = parts["params"].get_payload(decode=True)
+    assert isinstance(payload, bytes)
+    assert json.loads(payload) == parameters
     assert parts["file"].get_filename() == uploaded_filename
     assert parts["file"].get_payload(decode=True) == image.read_bytes()
     assert result.image == b"result\x00\xff" and result.filename == "mask.nrrd"
@@ -203,7 +205,8 @@ def test_network_timeout_and_redirect_are_explicit(label_server, tmp_path):
 
 def test_https_uses_certificate_and_hostname_verification():
     transport = client.MonaiClient(client.ConnectionSettings("https://example.invalid"))
-    handler = next(value for value in transport._opener.handlers if hasattr(value, "_context"))
+    handlers = vars(transport._opener)["handlers"]
+    handler = next(value for value in handlers if hasattr(value, "_context"))
     assert handler._context.verify_mode == ssl.CERT_REQUIRED
     assert handler._context.check_hostname is True
 
@@ -385,15 +388,19 @@ def test_canonical_invalid_polyline_does_not_execute(canonical_endpoint, tmp_pat
 def test_native_session_owner_reuses_real_upload_and_deletes_after_success(
     canonical_endpoint,
     tmp_path,
+    monkeypatch,
 ):
     import shutil
 
     from VesselRaySegmentationLib.monai.sessions import VolumeSession
 
-    path, _image, _values = fixture_image(tmp_path)
+    path, _image, values = fixture_image(tmp_path)
     endpoint = canonical_endpoint
     connection = client.ConnectionSettings(endpoint.endpoint, 10, endpoint.token)
-    snapshot = SimpleNamespace(write_image=lambda target: shutil.copyfile(path, target))
+    snapshot = VolumeSnapshot.capture(values, np.eye(4), ("id", "CT"))
+    monkeypatch.setattr(
+        VolumeSnapshot, "write_image", lambda self, target: shutil.copyfile(path, target)
+    )
     owner = VolumeSession(connection, snapshot)
     identifiers = []
     for _ in range(2):
@@ -425,7 +432,11 @@ def test_browser_disposal_during_discovery_or_upload_prevents_inference(stage):
             if stage == "models":
                 started.set()
                 await release.wait()
-            return {"selected": SimpleNamespace(input_profile="image")}
+            return {
+                "selected": client.ModelDescriptor.from_info(
+                    "selected", {"config": {"input_profile": "image"}}
+                )
+            }
 
         async def ensure():
             started.set()
@@ -466,7 +477,9 @@ def test_browser_timeout_includes_response_body_and_aborts_fetch(monkeypatch):
     state = SimpleNamespace(aborted=False)
     controller = SimpleNamespace(signal=object(), abort=lambda: setattr(state, "aborted", True))
     js = ModuleType("js")
-    js.AbortController = SimpleNamespace(new=lambda: controller)
+    monkeypatch.setattr(
+        js, "AbortController", SimpleNamespace(new=lambda: controller), raising=False
+    )
     http = ModuleType("pyodide.http")
 
     async def read_body():
@@ -476,7 +489,7 @@ def test_browser_timeout_includes_response_body_and_aborts_fetch(monkeypatch):
     async def pyfetch(*_args, **_kwargs):
         return SimpleNamespace(ok=True, bytes=read_body)
 
-    http.pyfetch = pyfetch
+    monkeypatch.setattr(http, "pyfetch", pyfetch, raising=False)
     monkeypatch.setitem(sys.modules, "js", js)
     monkeypatch.setitem(sys.modules, "pyodide", ModuleType("pyodide"))
     monkeypatch.setitem(sys.modules, "pyodide.http", http)

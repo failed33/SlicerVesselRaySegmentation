@@ -17,8 +17,8 @@ PYTHON_VERSION = "3.12.15"
 UV_VERSION = "0.12.23"
 
 
-def run(command: list[str], **kwargs: object) -> str:
-    return subprocess.check_output(command, text=True, **kwargs)
+def run(command: list[str]) -> str:
+    return subprocess.check_output(command, text=True)
 
 
 def bundle(native: Path, wheel: Path, output: Path, uv: str) -> Path:

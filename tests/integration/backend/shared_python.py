@@ -49,6 +49,7 @@ def check_numerical_profile(application: Path) -> dict[str, object]:
     locations = {}
     for name in modules:
         module = importlib.import_module(name)
+        assert module.__file__ is not None, f"Installed module has no origin: {name}"
         location = Path(module.__file__).resolve()
         if not location.is_relative_to(installed):
             raise AssertionError(f"Imported {name} outside the installed wheel: {location}")

@@ -148,7 +148,14 @@ def generate(output: Path) -> dict[str, Any]:
             )
         ):
             name = f"{label}-{iteration}"
-            config = config_record(data.shape, len(geometry), h0, tuple(center - PATCH_SIZE // 2))
+            depth, height, width = data.shape
+            corner_z, corner_y, corner_x = center - PATCH_SIZE // 2
+            config = config_record(
+                (depth, height, width),
+                len(geometry),
+                h0,
+                (int(corner_z), int(corner_y), int(corner_x)),
+            )
             config.tofile(output / f"{name}-config.bin")
             specs = []
             expected = reference(data, geometry, center, h0)
@@ -334,7 +341,9 @@ def attach_model(directory: Path, path: Path) -> None:
             ).reshape(output["shape"])
             for output in case["outputs"]
         }
-        logits = session.run(["mask_logits"], feeds)[0].reshape(-1)
+        output = session.run(["mask_logits"], feeds)[0]
+        assert isinstance(output, np.ndarray), "ModelO must return a dense logit tensor"
+        logits = output.reshape(-1)
         assert np.isfinite(logits).all(), "CPU trained model returned nonfinite logits"
         name = case["name"] + "-model-logits.bin"
         logits.tofile(directory / name)

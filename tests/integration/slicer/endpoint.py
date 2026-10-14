@@ -141,10 +141,11 @@ def create_application(
     )
     from monai_service.schemas.base import NoParameters
     from monailabel.config import settings
+    from pydantic import AnyHttpUrl
     from tests.fixtures import FixedArtifactSource, SmokeWorkflow
 
     settings.MONAI_LABEL_AUTH_ENABLE = True
-    settings.MONAI_LABEL_CORS_ORIGINS = origins
+    settings.MONAI_LABEL_CORS_ORIGINS = [AnyHttpUrl(origin) for origin in origins]
     settings.MONAI_LABEL_SESSIONS = True
     settings.MONAI_LABEL_SESSION_PATH = str(work_dir / "sessions")
     settings.MONAI_LABEL_STUDIES = str(work_dir / "studies")
@@ -156,9 +157,9 @@ def create_application(
         with lock, events_file.open("a") as stream:
             stream.write(json.dumps({"timestamp": time.time(), **event}) + "\n")
 
+    @dataclass(frozen=True)
     class SyntheticWorkflow(SmokeWorkflow):
-        def __init__(self, profile: str) -> None:
-            object.__setattr__(self, "profile", profile)
+        profile: str
 
         @property
         def descriptor(self):

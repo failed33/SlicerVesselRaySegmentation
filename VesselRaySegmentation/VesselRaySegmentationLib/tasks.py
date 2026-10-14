@@ -6,9 +6,14 @@ import asyncio
 import queue
 import sys
 import threading
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from .monai.client import MonaiClient
 from .monai.submission import run_inference
+
+if TYPE_CHECKING:
+    from .browser import BrowserSession
 
 
 class TaskController:
@@ -17,10 +22,11 @@ class TaskController:
         self.busy = False
         self.cancelled = False
         self.disposed = False
-        self.browser_session = None
-        self.pending = None
-        self.messages = queue.Queue()
-        self.timer = None
+        self.browser_session: BrowserSession | None = None
+        self.pending: asyncio.Future[None] | None = None
+        self.messages: queue.Queue[tuple[Any, Exception | None]] = queue.Queue()
+        self.callbacks: tuple[Callable[[Any], None], Callable[[Exception], None]] | None = None
+        self.timer: Any = None  # PythonQt and SlicerWeb supply the timer at runtime.
         if not self.browser:
             import qt
 
@@ -28,7 +34,12 @@ class TaskController:
             self.timer.setInterval(50)
             self.timer.connect("timeout()", self._poll)
 
-    def _start(self, operation, on_done, on_failed) -> None:
+    def _start(
+        self,
+        operation: Callable[[], Any],
+        on_done: Callable[[Any], None],
+        on_failed: Callable[[Exception], None],
+    ) -> None:
         if self.busy or self.disposed:
             raise RuntimeError("An endpoint request is already running")
         self.busy, self.cancelled = True, False
@@ -63,7 +74,7 @@ class TaskController:
 
     def _deliver(self, result, error) -> None:
         self.busy = False
-        if self.disposed:
+        if self.disposed or self.callbacks is None:
             return
         done, failed = self.callbacks
         if self.cancelled:

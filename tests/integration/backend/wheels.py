@@ -16,12 +16,16 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import numpy as np
 import SimpleITK as sitk
 from mlflow import MlflowClient
 from requests_toolbelt.multipart.decoder import MultipartDecoder
+
+if TYPE_CHECKING:
+    from tests.fixture_factory import ArgCase
 
 
 def check_installed_packages() -> dict[str, str]:
@@ -47,7 +51,7 @@ def check_installed_packages() -> dict[str, str]:
     return locations
 
 
-def assert_mask(path: Path, case: object) -> None:
+def assert_mask(path: Path, case: ArgCase) -> None:
     mask, source = sitk.ReadImage(str(path)), sitk.ReadImage(str(case.image))
     np.testing.assert_array_equal(sitk.GetArrayFromImage(mask), case.expected)
     for getter in ("GetSize", "GetOrigin", "GetSpacing", "GetDirection"):
@@ -161,7 +165,7 @@ def running_service(root: Path, mode: str, server_image: str | None):
                 process.wait(timeout=5)
 
 
-def check_http(root: Path, case: object, mode: str, server_image: str | None) -> dict:
+def check_http(root: Path, case: ArgCase, mode: str, server_image: str | None) -> dict:
     with running_service(root, mode, server_image) as client:
         info = client.get("/info/")
         info.raise_for_status()
@@ -197,7 +201,7 @@ def check_http(root: Path, case: object, mode: str, server_image: str | None) ->
         }
 
 
-def check_worker_container(root: Path, case: object, image: str) -> dict:
+def check_worker_container(root: Path, case: ArgCase, image: str) -> dict:
     output, metadata = root / "worker.nii.gz", root / "worker.json"
     subprocess.run(
         [

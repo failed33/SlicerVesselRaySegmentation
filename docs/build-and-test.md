@@ -78,6 +78,32 @@ repository. GitHub CI has no permission to publish source changes or releases.
 
 ## Run locally
 
+### Python quality
+
+`Python quality` runs required Pyrefly type checks separately from Ruff linting
+and formatting. The root virtual development project pins Pyrefly 0.55.0 and
+Ruff 0.15.6; it is not an installable extension or runtime dependency.
+
+```sh
+uv sync --frozen
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+UV_PROJECT_ENVIRONMENT="$PWD/deployment/inference/.venv-typecheck" \
+  uv sync --project deployment/inference --python 3.12 --frozen --all-extras --group test
+UV_PROJECT_ENVIRONMENT="$PWD/deployment/monai/.venv-typecheck" \
+  uv sync --project deployment/monai --python 3.12 --frozen --all-extras --group dev
+uv run --frozen pyrefly check --config pyproject.toml
+uv run --frozen pyrefly check --config deployment/inference/pyproject.toml
+uv run --frozen pyrefly check --config deployment/monai/pyproject.toml
+```
+
+The application configuration covers the Slicer module, packaging/publication
+tools and infrastructure/integration tests. It explicitly permits missing host
+modules supplied by Slicer, SlicerVMTK and Pyodide; real application tests still
+validate those APIs. Backend checks keep their package-specific environments so
+native and MONAI dependency profiles are not mixed. No type-error categories are
+disabled to pass these gates.
+
 Infrastructure tests:
 
 ```sh

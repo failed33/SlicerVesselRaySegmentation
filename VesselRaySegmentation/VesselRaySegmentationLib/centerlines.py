@@ -140,7 +140,10 @@ def measure_network_branches(network: Any) -> tuple[NetworkBranch, ...]:
         branches.append(
             NetworkBranch(
                 cell_id=cell_id,
-                endpoints=(tuple(points[0]), tuple(points[-1])),
+                endpoints=(
+                    (float(points[0, 0]), float(points[0, 1]), float(points[0, 2])),
+                    (float(points[-1, 0]), float(points[-1, 1]), float(points[-1, 2])),
+                ),
                 length_mm=float(distances.sum()),
                 estimated_volume_mm3=float(volume),
             )
@@ -179,7 +182,7 @@ def _extract_component(logic: Any, surface: Any, index: int) -> tuple[Any, dict[
     volume = vtk.vtkMassProperties()
     volume.SetInputData(prepared)
     volume.Update()
-    details = {"component": index, "surface_volume_mm3": volume.GetVolume()}
+    details: dict[str, Any] = {"component": index, "surface_volume_mm3": volume.GetVolume()}
     try:
         network = logic.extractNetwork(prepared, None)
     except ValueError as error:

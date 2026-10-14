@@ -1,0 +1,58 @@
+[project]
+name = "slicer-vessel-ray-segmentation-dev"
+version = "0.0.0"
+description = "Development tools for the Slicer vessel segmentation extension"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = ["pyrefly==0.55.0", "ruff==0.15.6"]
+
+[tool.uv]
+package = false
+required-version = ">=0.12.23"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["build"]
+
+[tool.ruff.lint]
+select = ["E401", "F401", "F541", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+"**/conftest.py" = ["F401"]
+
+[tool.pyrefly]
+python-version = "3.12"
+python-interpreter-path = "deployment/monai/.venv-typecheck/bin/python"
+search-path = [
+    "VesselRaySegmentation",
+    "deployment/inference/src",
+    "deployment/monai",
+    "tests/integration/runtime",
+    "tests/integration/slicer",
+    ".",
+]
+project-includes = [
+    "VesselRaySegmentation/**/*.py",
+    "tools/**/*.py",
+    "tests/infrastructure/**/*.py",
+    "tests/integration/**/*.py",
+]
+# Supplied by desktop Slicer, SlicerVMTK or SlicerWeb, outside this host environment.
+ignore-missing-imports = [
+    "slicer",
+    "slicer.*",
+    "vtk",
+    "vtk.*",
+    "qt",
+    "ctk",
+    "ExtractCenterline",
+    "slicerweb",
+    "slicerweb.*",
+    "js",
+    "pyodide",
+    "pyodide.*",
+]

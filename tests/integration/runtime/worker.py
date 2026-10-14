@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 async def run_runtime(
     runtime_adapter_url: str, runtime_options: dict[str, bool]
@@ -18,7 +20,7 @@ async def run_runtime(
     runtime = await import_runtime(runtime_adapter_url)
     from model_o_inference.shaders import load_shader
 
-    options = dict(runtime_options)
+    options: dict[str, Any] = dict(runtime_options)
     options["model_o_shaders"] = {
         name: {"code": load_shader(name).code, "metadata": load_shader(name).metadata}
         for name in ("patch_inputs",)

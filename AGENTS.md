@@ -20,7 +20,16 @@ under `tests/integration/`, and infrastructure unit tests under
 Put downloads, extracted packages, virtual environments and reports under ignored
 `build/`. Do not add generated artifacts or one-off proof files to the root.
 
+The root `pyproject.toml` is a virtual development-tools project. Pyrefly checks
+types; Ruff checks lint and formatting. Both are required by `Python quality` CI.
+Use the package-specific typing environments documented in `docs/build-and-test.md`;
+the root tool environment intentionally has no application runtime dependencies.
+
 ## Alerts
+
+- Pyrefly's application search path must put `VesselRaySegmentation/` before
+  the repository root. Reversing them confuses the module directory with its
+  same-named Slicer entry point and reports missing internal package imports.
 
 - Direct GitHub README edits during a GitLab outage caused publication to reject
   a non-fast-forward update. Fetch and preserve public-only commits by merging

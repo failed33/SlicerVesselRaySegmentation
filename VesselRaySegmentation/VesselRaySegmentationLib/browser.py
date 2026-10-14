@@ -6,6 +6,7 @@ import asyncio
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 from urllib.parse import quote
 
 from .monai.client import ModelDescriptor, MonaiClientError, _decode_result, _multipart_upload
@@ -55,8 +56,8 @@ class BrowserClient:
         from js import AbortController
         from pyodide.http import pyfetch
 
-        headers = {}
-        options = {"method": method, "redirect": "error", "credentials": "omit"}
+        headers: dict[str, str] = {}
+        options: dict[str, Any] = {"method": method, "redirect": "error", "credentials": "omit"}
         if self.connection.bearer_token:
             headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         if upload is not None:

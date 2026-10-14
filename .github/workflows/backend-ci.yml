@@ -90,10 +90,6 @@ jobs:
         run: |
           uv sync --project deployment/monai --frozen --no-install-project --no-editable --group dev --extra arg --extra model-o --extra kubernetes
           uv pip install --python build/backend/installed/bin/python --no-deps --reinstall build/backend/dist/*.whl
-      - name: Check backend formatting and imports
-        run: |
-          build/backend/installed/bin/ruff check VesselRaySegmentation tools tests/integration deployment/inference deployment/monai
-          build/backend/installed/bin/ruff format --check VesselRaySegmentation tools tests/integration deployment/inference deployment/monai
       - name: Test packaged runtime asset integrity
         run: build/backend/installed/bin/python -m unittest discover -s tests/integration/runtime -v
       - name: Test standalone backend behavior

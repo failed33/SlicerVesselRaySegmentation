@@ -116,9 +116,7 @@ def run_case(host: DawnHost, fixtures: Path, spec: dict[str, Any]) -> dict[str, 
         }
 
 
-def run(
-    fixtures: Path, assets: Path, *, allow_software: bool, require_f16: bool
-) -> dict[str, object]:
+def run(fixtures: Path, assets: Path, *, allow_software: bool, require_f16: bool) -> dict[str, Any]:
     fixtures, assets = fixtures.resolve(), assets.resolve()
     if allow_software:
         os.environ["ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER"] = "1"

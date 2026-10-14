@@ -6,10 +6,11 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+from typing import Any
 from zipfile import ZipFile
 
 
-def stage(wheel: Path, destination: Path) -> dict[str, object]:
+def stage(wheel: Path, destination: Path) -> dict[str, Any]:
     with ZipFile(wheel) as archive:
         manifests = [
             name for name in archive.namelist() if name.endswith("/wasm-runtime/manifest.json")

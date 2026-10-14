@@ -133,7 +133,9 @@ def prepare_cleanup(
     """Create a separate editable result; keep the original ARG prediction intact."""
     import slicer
 
-    if segmentation is not None and segmentation.GetParentTransformNode():
+    if segmentation is None or not segment_id:
+        raise ValueError("Select the ARG vessel segment")
+    if segmentation.GetParentTransformNode():
         raise ValueError("Harden the ARG segmentation transform before filtering physical volumes")
     image, summary = filter_components(
         segment_image(segmentation, segment_id), minimum_mm3, largest_count
