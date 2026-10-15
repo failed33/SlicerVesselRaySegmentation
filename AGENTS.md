@@ -27,6 +27,16 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- ModelO gathers origins around the continuous selected origin, but truncates that
+  origin for the integer output crop. Half-open boundary tests must cover both
+  coordinate conventions. The planner's two explicit margin keywords control
+  independent geometry: context changes sparse center coverage, while gather
+  changes the origins available to a fixed output crop. Keep both defaults zero
+  for existing callers, and record any selected policy with its consumer.
+  Its six-parameter public signature is intentional: the two margin controls stay
+  explicit instead of hiding independent geometry in an options object solely
+  to satisfy the usual five-parameter limit.
+
 - Pyrefly's application search path must put `VesselRaySegmentation/` before
   the repository root. Reversing them confuses the module directory with its
   same-named Slicer entry point and reports missing internal package imports.

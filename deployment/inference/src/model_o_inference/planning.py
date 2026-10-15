@@ -74,7 +74,7 @@ def _complete_coverage(
 
 
 def _sparse_centers(
-    positions: np.ndarray, polyline: np.ndarray, patch_size: int, overlap: float
+    positions: np.ndarray, polyline: np.ndarray, core_size: int, stride: float
 ) -> list[int]:
     """Choose existing origins by voxel arc length, independently for each branch."""
     distances = np.concatenate(
@@ -82,17 +82,31 @@ def _sparse_centers(
     )
     midpoint = int(np.argmin(np.abs(distances - distances[-1] / 2.0)))
     if (
-        _in_box(polyline, positions[midpoint].astype(np.int64), patch_size).all()
-        and _in_box(positions, positions[midpoint], patch_size).all()
+        _in_box(polyline, positions[midpoint].astype(np.int64), core_size).all()
+        and _in_box(positions, positions[midpoint], core_size).all()
     ):
         return [midpoint]
 
-    stride = patch_size * (1.0 - overlap)
     indices = [0]
     while indices[-1] < len(positions) - 1:
         following = int(np.searchsorted(distances, distances[indices[-1]] + stride, side="right"))
         indices.append(max(following - 1, indices[-1] + 1))
-    return _complete_coverage(positions, indices, polyline[[0, -1]], patch_size)
+    return _complete_coverage(positions, indices, polyline[[0, -1]], core_size)
+
+
+def _planning_sizes(
+    patch_size: int, context_margin_voxels: int, gather_margin_voxels: int
+) -> tuple[int, int]:
+    for name, value in (
+        ("context_margin_voxels", context_margin_voxels),
+        ("gather_margin_voxels", gather_margin_voxels),
+    ):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{name} must be a finite nonnegative integer")
+    core_size = patch_size - 2 * context_margin_voxels
+    if core_size < 2:
+        raise ValueError("context_margin_voxels must leave a core at least two voxels wide")
+    return core_size, patch_size + 2 * gather_margin_voxels
 
 
 def build_patch_plans(
@@ -101,18 +115,26 @@ def build_patch_plans(
     *,
     overlap: float | None = None,
     polylines_zyx: Sequence[np.ndarray | Sequence[Sequence[float]]] | None = None,
+    context_margin_voxels: int = 0,
+    gather_margin_voxels: int = 0,
 ) -> list[PatchPlan]:
     """Group rays into patches by same-branch spatial proximity.
 
     By default, mirror ``build_spatial_index`` with one patch per sample. A
     numeric overlap selects sparse centers while retaining all sampled rays.
     Original polylines supply endpoint coverage and the short-branch fit test.
-    Overlap specifies a nominal voxel-arc stride, not volumetric overlap.
-    Each selected center gathers rays from
-    same-edge samples whose position lies in the half-open box
-    ``[center - half, center - half + patch_size)`` (signed per-axis test, not
-    ``abs(delta) < half`` -- matches ``build_entry``'s corner-anchored box).
+    Overlap specifies the nominal voxel-arc stride ``patch_size * (1-overlap)``.
+    A context margin selects sparse centers using the inner width
+    ``patch_size - 2*context_margin_voxels``; coverage can add centers beyond the
+    nominal schedule. Dense mode ignores the context margin.
+    Every selected center gathers same-edge origins within the half-open width
+    ``patch_size + 2*gather_margin_voxels``, centered on the continuous origin.
+    The output center still truncates that origin to the integer grid, and the
+    output crop remains ``patch_size``. Neither margin changes ray sampling.
     """
+    core_size, gather_size = _planning_sizes(
+        patch_size, context_margin_voxels, gather_margin_voxels
+    )
     n_samples = len(rays.sample_positions)
     if n_samples == 0:
         return []
@@ -133,14 +155,15 @@ def build_patch_plans(
         for edge, samples in edge_to_samples.items():
             branch = positions[samples]
             polyline = branch if polylines_zyx is None else np.asarray(polylines_zyx[edge])
-            centers.extend(samples[_sparse_centers(branch, polyline, patch_size, overlap)])
+            stride = patch_size * (1.0 - overlap)
+            centers.extend(samples[_sparse_centers(branch, polyline, core_size, stride)])
         centers.sort()
 
     plans: list[PatchPlan] = []
     for s in centers:
         center = positions[s]
         same_branch = edge_to_samples[int(edges[s])]
-        in_box = _in_box(positions[same_branch], center, patch_size)
+        in_box = _in_box(positions[same_branch], center, gather_size)
         selected = same_branch[in_box]
 
         gathered = [rays.sample_ray_indices[i] for i in selected]

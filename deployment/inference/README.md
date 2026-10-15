@@ -19,6 +19,16 @@ volume exit, matching training. Output logits are checked for finite values,
 thresholded strictly above zero and combined by boolean union. No final sigmoid,
 probability accumulator, smoothing or morphological closing is required.
 
+The shared numerical `build_patch_plans` keeps center placement, origin gathering
+and output crop size separate. Numeric `overlap` sets the nominal voxel-arclength
+stride `patch_size * (1 - overlap)`. `context_margin_voxels` reserves an inner
+core for sparse center coverage, while `gather_margin_voxels` widens the same-branch
+origin gather without expanding the output crop. Both default to zero. `overlap=None`
+keeps one patch per origin and ignores the context margin; an explicit gather
+margin also applies to that dense schedule. Core coverage may add existing centers
+beyond the nominal stride, and fails if sampled origins cannot cover an endpoint.
+These library controls do not change the hosted request or deployed model contract.
+
 Numerical modules import independently of native execution and server packages.
 `arg_inference.plans` is standard-library-only; importing ARG no longer imports
 its execution dependencies. ModelO still needs ONNX for graph preparation, so its
