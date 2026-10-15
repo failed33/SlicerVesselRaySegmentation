@@ -3780,6 +3780,7 @@ test = [
     { name = "onnx" },
     { name = "onnxruntime" },
     { name = "pytest" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -3824,6 +3825,7 @@ test = [
     { name = "onnx", specifier = ">=1.23,<2" },
     { name = "onnxruntime", specifier = "==1.30.0" },
     { name = "pytest", specifier = ">=8" },
+    { name = "scipy", specifier = ">=1.13,<2" },
 ]
 
 [[package]]

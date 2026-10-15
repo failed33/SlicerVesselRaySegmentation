@@ -36,7 +36,7 @@ native = [
   "ctypeslib2==2.4.0",
   "libclang==18.1.1",
 ]
-test = ["numpy>=1.26,<3", "onnxruntime==1.30.0", "onnx>=1.23,<2", "pytest>=8"]
+test = ["numpy>=1.26,<3", "scipy>=1.13,<2", "onnxruntime==1.30.0", "onnx>=1.23,<2", "pytest>=8"]
 example = ["numpy>=1.26,<3", "onnxruntime==1.30.0", "scipy>=1.13,<2", "onnx>=1.23,<2"]
 
 # The lockfile serves the native/Label development environment. Shared numerical
