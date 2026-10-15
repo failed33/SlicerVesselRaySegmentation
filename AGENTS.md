@@ -123,6 +123,13 @@ are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
   The internal training exporter now applies the production graph preparation;
   desktop staging copies still have older contracts and are not release sources.
 
+- Shape-valid ModelO exports can require different sampling semantics. Serving
+  supports patch-truncated rays, legacy origin placement, trilinear origin HU
+  and the native CT grid. The graph validator rejects conflicting policy metadata
+  before session creation. Missing policy fields retain the historical shipped
+  contract. Internal exports retain their actual policies after shared graph
+  preparation; do not remove metadata to make an incompatible model deployable.
+
 - The ray shader truncates at the first patch or volume exit, matching training.
   Position is normalized by that valid length; padded features and HU are zero.
   Do not restore full-volume features with only a scatter mask. Fisher statistics

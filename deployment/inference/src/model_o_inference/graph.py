@@ -75,6 +75,23 @@ def validate_model_o(model: onnx.ModelProto, n_rays: int | None) -> None:
         raise ValueError("ModelO export must declare its ordered feature_channels metadata")
     if json.loads(metadata["feature_channels"]) != list(FEATURE_CHANNELS):
         raise ValueError("ModelO feature channel order does not match normalized HU, position")
+    _validate_sampling_metadata(metadata)
+
+
+def _validate_sampling_metadata(metadata: dict[str, str]) -> None:
+    """Missing policy metadata retains the original shipped sampling contract."""
+    supported = {
+        "ray_context_policy": "patch_truncated",
+        "origin_sampling_policy": "legacy_serving",
+        "origin_hu_policy": "trilinear",
+        "source_grid": "native",
+    }
+    for field, expected in supported.items():
+        actual = metadata.get(field, expected)
+        if actual != expected:
+            raise ValueError(
+                f"ModelO {field}={actual!r} is unsupported; runtime requires {expected!r}"
+            )
 
 
 def create_model_o_session(host: DawnHost, path: str, n_rays: int) -> GpuSession:

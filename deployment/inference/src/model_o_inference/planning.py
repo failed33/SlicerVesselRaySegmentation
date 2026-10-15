@@ -36,6 +36,7 @@ class PatchPlan:
     center_zyx: np.ndarray  # (3,) int64
     ray_indices: np.ndarray  # (N,) int64
     h0: float
+    branch_id: int = 0
 
 
 def _in_box(points: np.ndarray, center: np.ndarray, patch_size: int) -> np.ndarray:
@@ -99,7 +100,7 @@ def build_patch_plans(
     patch_size: int = PATCH_SIZE,
     *,
     overlap: float | None = None,
-    polylines_zyx: Sequence[Sequence[Sequence[float]]] | None = None,
+    polylines_zyx: Sequence[np.ndarray | Sequence[Sequence[float]]] | None = None,
 ) -> list[PatchPlan]:
     """Group rays into patches by same-branch spatial proximity.
 
@@ -152,6 +153,7 @@ def build_patch_plans(
                 center_zyx=center.astype(np.int64),
                 ray_indices=ray_indices,
                 h0=abs(float(rays.sample_hu[s])),
+                branch_id=int(edges[s]),
             )
         )
     return plans

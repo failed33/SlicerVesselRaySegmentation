@@ -1,6 +1,7 @@
 """Validate the selected model contract before GPU allocation."""
 
 import json
+from typing import cast
 
 import numpy as np
 import onnx
@@ -38,6 +39,57 @@ def test_selected_contract_prepares_dynamic_rays(tmp_path):
     prepared = onnx.load_model_from_string(prepare_model_o(str(source), 65))
     assert [d.dim_value for d in prepared.graph.input[0].type.tensor_type.shape.dim] == [65, 120, 2]
     validate_model_o(prepared, 65)
+
+
+@pytest.mark.parametrize("explicit_policies", [False, True])
+def test_historical_and_explicit_supported_policies_execute_identically(
+    tmp_path, explicit_policies
+):
+    candidate = model()
+    metadata = {entry.key: entry.value for entry in candidate.metadata_props}
+    if explicit_policies:
+        metadata.update(
+            ray_context_policy="patch_truncated",
+            origin_sampling_policy="legacy_serving",
+            origin_hu_policy="trilinear",
+            source_grid="native",
+        )
+    helper.set_model_props(candidate, metadata)
+    path = tmp_path / "accepted.onnx"
+    onnx.save(candidate, path)
+    prepared = onnx.load_model_from_string(prepare_model_o(str(path), 5))
+    assert {entry.key: entry.value for entry in prepared.metadata_props} == metadata
+    session = ort.InferenceSession(prepared.SerializeToString(), providers=["CPUExecutionProvider"])
+    inputs = {spec.name: np.zeros(spec.shape, dtype=spec.dtype) for spec in output_specs(5)}
+    inputs["ct_patch"][:] = np.arange(48**3).reshape(1, 48, 48, 48)
+    actual = cast(np.ndarray, session.run(None, inputs)[0])
+    np.testing.assert_array_equal(actual, inputs["ct_patch"][None])
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("ray_context_policy", "full_physical"),
+        ("ray_context_policy", "unknown"),
+        ("origin_sampling_policy", "max_spacing"),
+        ("origin_sampling_policy", "unknown"),
+        ("origin_hu_policy", "nearest"),
+        ("source_grid", "resampled"),
+    ],
+)
+def test_shape_valid_incompatible_sampling_policies_fail_before_preparation(tmp_path, field, value):
+    candidate = model()
+    metadata = {entry.key: entry.value for entry in candidate.metadata_props}
+    metadata[field] = value
+    helper.set_model_props(candidate, metadata)
+    path = tmp_path / "unsupported.onnx"
+    onnx.save(candidate, path)
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match=field):
+        validate_model_o(candidate, 5)
+    with pytest.raises(ValueError, match=field):
+        prepare_model_o(str(path), 5)
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize(

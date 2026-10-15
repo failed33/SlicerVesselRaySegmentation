@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TypedDict
 
 import numpy as np
 from scipy import ndimage
 
+from .geometry import OriginSamplingPolicy
+
 _NEAR_ZERO = 1e-12
 _MAX_UINT16_INDEX_COUNT = int(np.iinfo(np.uint16).max) + 1
+
+
+class PolylineSample(TypedDict):
+    position_zyx: np.ndarray
+    edge_index: int
+    tangent: np.ndarray
+    initial_hu: float
+
+
 _DEGENERATE_TANGENT = np.array([1.0, 0.0, 0.0], dtype=np.float64)
 
 
@@ -116,12 +128,38 @@ def compute_survivor_indices(
     return indices.astype(np.uint16)
 
 
-def _sample_polyline_geometry(
+def _validate_polyline(
     path_arr: np.ndarray,
     spacing_mm: float,
     spacing_arr: np.ndarray,
+    origin_sampling_policy: OriginSamplingPolicy,
+) -> None:
+    if origin_sampling_policy not in {"max_spacing", "legacy_serving"}:
+        raise ValueError("Unsupported origin sampling policy")
+    if not np.isfinite(spacing_mm) or spacing_mm <= 0:
+        raise ValueError("spacing_mm must be finite and positive")
+    if spacing_arr.shape != (3,) or not np.all(np.isfinite(spacing_arr) & (spacing_arr > 0)):
+        raise ValueError("spacing_zyx must contain three finite positive values")
+    if path_arr.ndim != 2 or path_arr.shape[1] != 3 or not len(path_arr):
+        raise ValueError("Each nonempty polyline must have shape (N, 3)")
+    if not np.isfinite(path_arr).all():
+        raise ValueError("Polyline coordinates must be finite")
+
+
+def sample_polyline_geometry(
+    path_arr: np.ndarray,
+    spacing_mm: float,
+    spacing_arr: np.ndarray,
+    origin_sampling_policy: OriginSamplingPolicy = "max_spacing",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return voxel positions and physical unit tangents for one nonempty line."""
+    """Interpolate a nonempty line with explicit physical origin placement.
+
+    ``max_spacing`` uses ceil(length/spacing)+1 and tangents on the resampled
+    physical path. Adjacent chord lengths can be shorter at bends. Q16
+    quantization happens later. ``legacy_serving`` retains the historical
+    floor rule and tangents based on the original neighboring vertices.
+    """
+    _validate_polyline(path_arr, spacing_mm, spacing_arr, origin_sampling_policy)
     path_phys = path_arr * spacing_arr
     deltas = np.diff(path_phys, axis=0)
     seg_lengths = np.linalg.norm(deltas, axis=1)
@@ -130,7 +168,11 @@ def _sample_polyline_geometry(
     if len(path_arr) == 1 or total_length < _NEAR_ZERO:
         return path_arr[:1].copy(), _DEGENERATE_TANGENT[None, :].copy()
 
-    n_samples = max(1, int(total_length / spacing_mm) + 1)
+    n_samples = (
+        max(2, int(np.ceil(total_length / spacing_mm)) + 1)
+        if origin_sampling_policy == "max_spacing"
+        else max(1, int(total_length / spacing_mm) + 1)
+    )
     sample_dists = np.linspace(0, total_length, n_samples)
 
     seg_idx = np.searchsorted(cum_length, sample_dists, side="right") - 1
@@ -142,6 +184,9 @@ def _sample_polyline_geometry(
     np.clip(t, 0.0, 1.0, out=t)
     positions = path_arr[seg_idx] + t[:, None] * (path_arr[seg_idx + 1] - path_arr[seg_idx])
 
+    if origin_sampling_policy == "max_spacing":
+        return positions, _resampled_tangents(positions * spacing_arr)
+
     lo = np.maximum(seg_idx - 1, 0)
     hi = np.minimum(seg_idx + 2, len(path_arr) - 1)
     tangents = (path_arr[hi] - path_arr[lo]).astype(np.float64) * spacing_arr
@@ -152,56 +197,56 @@ def _sample_polyline_geometry(
     return positions, tangents
 
 
-def _sample_polyline(
-    path: Sequence[Sequence[float]],
-    vol_float: np.ndarray,
-    spacing_mm: float,
-    spacing_arr: np.ndarray,
-    edge_idx: int,
-) -> list[dict]:
-    """Add shared HU interpolation and line identity to sampled geometry."""
-    path_arr = np.array(path, dtype=np.float64)
-    positions, tangents = _sample_polyline_geometry(path_arr, spacing_mm, spacing_arr)
-    hu_values = ndimage.map_coordinates(vol_float, positions.T, order=1, mode="nearest")
-    return [
-        {
-            "position_zyx": pos,
-            "edge_index": edge_idx,
-            "tangent": tangent,
-            "initial_hu": float(hu),
-        }
-        for pos, tangent, hu in zip(positions, tangents, hu_values)
-    ]
+def _resampled_tangents(physical: np.ndarray) -> np.ndarray:
+    """Centered differences, one-sided endpoints, and deterministic cusp fallback."""
+    tangents = np.empty_like(physical)
+    tangents[0] = physical[1] - physical[0]
+    tangents[-1] = physical[-1] - physical[-2]
+    tangents[1:-1] = physical[2:] - physical[:-2]
+    for index in np.flatnonzero(np.linalg.norm(tangents, axis=1) <= _NEAR_ZERO):
+        following = physical[min(index + 1, len(physical) - 1)] - physical[index]
+        preceding = physical[index] - physical[max(index - 1, 0)]
+        tangents[index] = following if np.linalg.norm(following) > _NEAR_ZERO else preceding
+    norms = np.linalg.norm(tangents, axis=1)
+    valid = norms > _NEAR_ZERO
+    tangents[valid] /= norms[valid, None]
+    tangents[~valid] = _DEGENERATE_TANGENT
+    return tangents
+
+
+def sample_origin_hu(volume: np.ndarray, positions: np.ndarray) -> np.ndarray:
+    """Trilinear origin HU with float64 output, without a whole-volume cast."""
+    return ndimage.map_coordinates(volume, positions.T, output=np.float64, order=1, mode="nearest")
 
 
 def sample_polylines(
-    polylines_zyx: Sequence[Sequence[Sequence[float]]],
+    polylines_zyx: Sequence[np.ndarray | Sequence[Sequence[float]]],
     volume: np.ndarray,
     spacing_mm: float,
     spacing_zyx: tuple[float, float, float],
-) -> list[dict]:
-    """Sample ordered ZYX polylines at regular physical intervals.
+    *,
+    origin_sampling_policy: OriginSamplingPolicy = "legacy_serving",
+) -> list[PolylineSample]:
+    """Sample ordered ZYX lines and trilinear HU on the supplied CT grid.
 
-    Each sample records position (float ZYX), edge index, local tangent,
-    and initial HU (trilinear interpolation from volume at sample position).
-
-    Args:
-        polylines_zyx: Ordered lines of ZYX voxel coordinates.
-        volume: 3D CT volume (ZYX) for HU sampling.
-        spacing_mm: Physical distance between samples.
-        spacing_zyx: Voxel spacing in mm.
-
-    Returns:
-        List of dicts with keys: position_zyx (3,), edge_index (int),
-        tangent (3,) unit vector, initial_hu (float).
+    The default retains historical serving geometry. Explicit ``max_spacing``
+    bounds continuous polyline arclength before Q16 and includes endpoints;
+    a degenerate branch produces one origin. Tangents are normalized in
+    physical space. Ownership lookup remains the caller's responsibility.
     """
     spacing_arr = np.asarray(spacing_zyx, dtype=np.float64)
-    vol_float = volume.astype(np.float64) if volume.dtype != np.float64 else volume
-    samples = []
-
+    samples: list[PolylineSample] = []
     for edge_idx, path in enumerate(polylines_zyx):
         if len(path) == 0:
             continue
-        samples.extend(_sample_polyline(path, vol_float, spacing_mm, spacing_arr, edge_idx))
-
+        positions, tangents = sample_polyline_geometry(
+            np.asarray(path, dtype=np.float64), spacing_mm, spacing_arr, origin_sampling_policy
+        )
+        hu_values = sample_origin_hu(volume, positions)
+        samples.extend(
+            PolylineSample(
+                position_zyx=pos, edge_index=edge_idx, tangent=tangent, initial_hu=float(hu)
+            )
+            for pos, tangent, hu in zip(positions, tangents, hu_values, strict=True)
+        )
     return samples

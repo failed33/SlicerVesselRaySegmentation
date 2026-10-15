@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+OriginSamplingPolicy = Literal["max_spacing", "legacy_serving"]
 
 
 @dataclass(frozen=True)
 class RayGeometryConfig:
-    """Six fields controlling where and how rays are cast.
+    """Geometry and origin placement for ray sampling.
 
     Pattern/learned producers receive caller-supplied values (UI knobs,
     sweep scripts, fast-test smoke configs). The ModelO factory locks
@@ -22,3 +25,4 @@ class RayGeometryConfig:
     sample_spacing_mm: float
     step_size_mm: float
     max_travel_mm: float
+    origin_sampling_policy: OriginSamplingPolicy = "legacy_serving"

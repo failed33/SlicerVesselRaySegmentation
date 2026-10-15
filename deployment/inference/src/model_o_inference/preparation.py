@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .geometry import RayGeometryConfig
-from .lattice import quantize_to_fixed
+from .lattice import fixed_to_float, quantize_to_fixed
 from .sampling import (
     compute_survivor_indices,
     generate_fibonacci_sphere,
@@ -37,7 +37,7 @@ class RayContext:
 
 
 def prepare_ray_context(
-    polylines_zyx: Sequence[Sequence[Sequence[float]]],
+    polylines_zyx: Sequence[np.ndarray | Sequence[Sequence[float]]],
     volume: np.ndarray,
     geometry: RayGeometryConfig,
     spacing_zyx: tuple[float, float, float],
@@ -47,7 +47,13 @@ def prepare_ray_context(
     Coordinates are continuous voxel positions in the supplied CT's ZYX grid;
     spacing supplies physical distances for sampling and ray steps.
     """
-    samples = sample_polylines(polylines_zyx, volume, geometry.sample_spacing_mm, spacing_zyx)
+    samples = sample_polylines(
+        polylines_zyx,
+        volume,
+        geometry.sample_spacing_mm,
+        spacing_zyx,
+        origin_sampling_policy=geometry.origin_sampling_policy,
+    )
     num_rays = int(geometry.num_rays)
     total_rays = len(samples) * num_rays
     ray_origin_hu = np.zeros(total_rays, dtype=np.float32)
@@ -72,9 +78,17 @@ def prepare_ray_context(
         ray_origin_hu[block] = np.float32(sample["initial_hu"])
         ray_lattice_fp[block, :3] = quantize_to_fixed(np.broadcast_to(pos, (num_rays, 3)))
         ray_lattice_fp[block, 3:] = quantize_to_fixed(directions * step_scale)
-        sample_positions[sample_idx] = pos
+        sample_positions[sample_idx] = (
+            fixed_to_float(ray_lattice_fp[block.start, :3])
+            if geometry.origin_sampling_policy == "max_spacing"
+            else pos
+        )
         sample_edges[sample_idx] = int(sample["edge_index"])
-        sample_hu[sample_idx] = float(sample["initial_hu"])
+        sample_hu[sample_idx] = (
+            float(np.float32(sample["initial_hu"]))
+            if geometry.origin_sampling_policy == "max_spacing"
+            else sample["initial_hu"]
+        )
         sample_ray_indices.append(np.arange(block.start, block.stop, dtype=np.int64))
 
     return RayContext(
