@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
 
     import numpy as np
+    import onnxruntime as ort
     import SimpleITK as sitk
     from dawn_ort import DawnHost, GpuSession
     from dawn_ort.host import Buffer
@@ -60,6 +61,52 @@ class _PatchRun:
     completed: int = 0
     last_log: float = 0.0
 
+    def infer_group(self, capacity: int, plans: list[PatchPlan]) -> str:
+        started = time.perf_counter()
+        image = self.execution.image
+        first_case = _ray_case(image, self.context, plans[0], capacity)
+        with ExitStack() as resources:
+            pipeline = self.pipeline_factory(resources, first_case)
+            provider = _gpu_provider(pipeline)
+            setup_seconds = time.perf_counter() - started
+            self.timings["group_setup"] += setup_seconds
+            logger.info("ModelO GPU group ready in %.2f s", setup_seconds)
+            cases = (
+                (plan, first_case if index == 0 else _ray_case(image, self.context, plan, capacity))
+                for index, plan in enumerate(plans)
+            )
+            predictions = resources.enter_context(
+                closing(_predict_windows(pipeline, cases, self.queue_depth, self.timings))
+            )
+            for plan, patch_mask in predictions:
+                self.merge(plan, patch_mask)
+        return provider
+
+    def merge(self, plan: PatchPlan, patch_mask: NDArray[np.bool_]) -> None:
+        started = time.perf_counter()
+        center = plan.center_zyx
+        self.merger.aggregate(patch_mask, (int(center[0]), int(center[1]), int(center[2])))
+        self.timings["patch_merge"] += time.perf_counter() - started
+        self.completed += 1
+        progress = PatchProgress(self.completed, self.total, time.perf_counter() - self.started)
+        if self.execution.observer is not None:
+            self.execution.observer.on_progress(
+                progress,
+                lambda: _mask_image(self.merger.finalize(), self.execution.image.reference),
+            )
+        if (
+            self.completed == 1
+            or self.completed == self.total
+            or progress.elapsed_seconds - self.last_log >= 10.0
+        ):
+            logger.info(
+                "ModelO patches %s/%s completed in %.2f s",
+                self.completed,
+                self.total,
+                progress.elapsed_seconds,
+            )
+            self.last_log = progress.elapsed_seconds
+
 
 def _mask_image(mask_array: NDArray[np.bool_], reference: sitk.Image) -> sitk.Image:
     import numpy as np
@@ -68,13 +115,6 @@ def _mask_image(mask_array: NDArray[np.bool_], reference: sitk.Image) -> sitk.Im
     mask = sitk.GetImageFromArray(mask_array.astype(np.uint8))
     mask.CopyInformation(reference)
     return mask
-
-
-def _observe_patch(execution: _PatchExecution, merger: MaskMerger, progress: PatchProgress) -> None:
-    if execution.observer is not None:
-        execution.observer.on_progress(
-            progress, lambda: _mask_image(merger.finalize(), execution.image.reference)
-        )
 
 
 def _read_ct(input_path: Path) -> _Volume:
@@ -112,14 +152,14 @@ def _ray_case(image: _Volume, context: RayContext, plan: PatchPlan, capacity: in
 
 
 @dataclass(frozen=True)
-class _GpuPatchInference:
+class _DawnPatchInference:
     host: DawnHost
     builder: DawnPatchInputs
     session: GpuSession
     logits: Buffer
 
     @property
-    def native_session(self):
+    def native_session(self) -> ort.InferenceSession:
         return self.session.native_session
 
     def submit(self, case: PackedRayCase, resources: ExitStack) -> Buffer:
@@ -139,9 +179,9 @@ class _GpuPatchInference:
         return mask_from_logits(logits)
 
 
-def _gpu_pipeline(
+def _dawn_pipeline(
     resources: ExitStack, host: DawnHost, model_path: Path, case: PackedRayCase, ct_buffer: Buffer
-) -> _GpuPatchInference:
+) -> _DawnPatchInference:
     import numpy as np
     from dawn_ort import DeviceTensor
 
@@ -163,7 +203,7 @@ def _gpu_pipeline(
             )
         },
     )
-    return _GpuPatchInference(host, builder, session, logits)
+    return _DawnPatchInference(host, builder, session, logits)
 
 
 def _upload_ct(resources: ExitStack, host: DawnHost, image: _Volume) -> Buffer:
@@ -195,25 +235,6 @@ def _predict_windows[Pending](
                 yield plan, patch_mask
 
 
-def _report_patch(
-    execution: _PatchExecution, merger: MaskMerger, progress: PatchProgress, last_log: float
-) -> float:
-    _observe_patch(execution, merger, progress)
-    if (
-        progress.completed == 1
-        or progress.completed == progress.total
-        or progress.elapsed_seconds - last_log >= 10.0
-    ):
-        logger.info(
-            "ModelO patches %s/%s completed in %.2f s",
-            progress.completed,
-            progress.total,
-            progress.elapsed_seconds,
-        )
-        return progress.elapsed_seconds
-    return last_log
-
-
 def _capacity_groups(plans: list[PatchPlan]) -> dict[int, list[PatchPlan]]:
     """Reduce invalid-ray padding with at most three sequential session sizes."""
     maximum = max(len(plan.ray_indices) for plan in plans)
@@ -227,7 +248,7 @@ def _capacity_groups(plans: list[PatchPlan]) -> dict[int, list[PatchPlan]]:
     return dict(sorted(groups.items()))
 
 
-def _infer_patches(
+def _infer_dawn_patches(
     host: DawnHost,
     context: RayContext,
     plans: list[PatchPlan],
@@ -237,15 +258,13 @@ def _infer_patches(
 ) -> tuple[NDArray[np.bool_], int, str, dict[str, float]]:
     """Measure CPU wall time; collection includes queued GPU completion and mapping."""
 
-    if type(queue_depth) is not int or queue_depth not in (1, 2, 4):
-        raise ValueError("ModelO queue depth must be 1, 2 or 4")
     started = time.perf_counter()
     with ExitStack() as resources:
         ct_buffer = _upload_ct(resources, host, execution.image)
         upload_seconds = time.perf_counter() - started
 
         def pipeline_factory(group_resources: ExitStack, case: PackedRayCase):
-            return _gpu_pipeline(group_resources, host, execution.model_path, case, ct_buffer)
+            return _dawn_pipeline(group_resources, host, execution.model_path, case, ct_buffer)
 
         mask, capacity, provider, timings = _infer_groups(
             context, plans, execution, pipeline_factory, queue_depth=queue_depth
@@ -286,40 +305,8 @@ def _infer_groups(
             len(group_plans),
             group_capacity,
         )
-        provider = _infer_group(group_capacity, group_plans, run)
+        provider = run.infer_group(group_capacity, group_plans)
     return merger.finalize(), capacity, provider, timings
-
-
-def _infer_group(capacity: int, plans: list[PatchPlan], run: _PatchRun) -> str:
-    started = time.perf_counter()
-    image = run.execution.image
-    first_case = _ray_case(image, run.context, plans[0], capacity)
-    with ExitStack() as resources:
-        pipeline = run.pipeline_factory(resources, first_case)
-        provider = _gpu_provider(pipeline)
-        setup_seconds = time.perf_counter() - started
-        run.timings["group_setup"] += setup_seconds
-        logger.info("ModelO GPU group ready in %.2f s", setup_seconds)
-        cases = (
-            (plan, first_case if index == 0 else _ray_case(image, run.context, plan, capacity))
-            for index, plan in enumerate(plans)
-        )
-        predictions = resources.enter_context(
-            closing(_predict_windows(pipeline, cases, run.queue_depth, run.timings))
-        )
-        for plan, patch_mask in predictions:
-            _merge_prediction(run, plan, patch_mask)
-    return provider
-
-
-def _merge_prediction(run: _PatchRun, plan: PatchPlan, patch_mask: NDArray[np.bool_]) -> None:
-    started = time.perf_counter()
-    center = plan.center_zyx
-    run.merger.aggregate(patch_mask, (int(center[0]), int(center[1]), int(center[2])))
-    run.timings["patch_merge"] += time.perf_counter() - started
-    run.completed += 1
-    progress = PatchProgress(run.completed, run.total, time.perf_counter() - run.started)
-    run.last_log = _report_patch(run.execution, run.merger, progress, run.last_log)
 
 
 def _gpu_provider(pipeline: PatchPipeline) -> str:
@@ -457,7 +444,7 @@ def _run_cuda(
     execution: _PatchExecution,
     *,
     queue_depth: Literal[1, 2, 4],
-):
+) -> tuple[NDArray[np.bool_], int, str, str, dict[str, float]]:
     from cuda_ort import initialize_cuda
     from cuda_ort.host import CudaHost
 
@@ -492,7 +479,7 @@ def _run_dawn(
     assets_path: Path | None,
     *,
     queue_depth: Literal[1, 2, 4],
-):
+) -> tuple[NDArray[np.bool_], int, str, str, dict[str, float]]:
     import onnxruntime as ort
     from dawn_ort import DawnHost
     from dawn_ort.platforms import platform_config
@@ -505,7 +492,7 @@ def _run_dawn(
         resources.callback(ort.unregister_execution_provider_library, "dawn")
         host = DawnHost(assets_path / "webgpu.py")
         resources.callback(host.close)
-        mask, capacity, provider_name, timings = _infer_patches(
+        mask, capacity, provider_name, timings = _infer_dawn_patches(
             host, context, plans, execution, queue_depth=queue_depth
         )
         backend = host.backend

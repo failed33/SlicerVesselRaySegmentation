@@ -278,7 +278,7 @@ def test_gpu_patch_progress_logs_first_periodic_and_last_completion(monkeypatch,
 
     plans = [PatchPlan(np.array([6, 6, 6]), np.array([index]), 250.0) for index in range(4)]
     pipeline = _pipeline_double(lambda _case: np.zeros((48,) * 3, dtype=bool))
-    monkeypatch.setattr(runtime, "_gpu_pipeline", lambda *_args: pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", lambda *_args: pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda _image, _context, plan, _capacity: plan)
     clock = [0.0]
     pipeline.collect = lambda mask: (clock.__setitem__(0, clock[0] + 5), mask)[1]
@@ -286,7 +286,7 @@ def test_gpu_patch_progress_logs_first_periodic_and_last_completion(monkeypatch,
     caplog.set_level("INFO", logger=runtime.__name__)
     volume = SimpleNamespace(array=np.zeros((12,) * 3, dtype=np.float32))
 
-    mask, capacity, provider, _timings = runtime._infer_patches(
+    mask, capacity, provider, _timings = runtime._infer_dawn_patches(
         _host_double(), None, plans, runtime._PatchExecution(volume, Path("unused.onnx"))
     )
     assert mask.shape == (12,) * 3
@@ -404,10 +404,10 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
         return _pipeline_double(predict)
 
     monkeypatch.setattr(runtime, "_ray_case", ray_case)
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(MaskMerger, "finalize", finalize)
     caplog.set_level("INFO", logger=runtime.__name__)
-    mask, capacity, provider, timings = runtime._infer_patches(
+    mask, capacity, provider, timings = runtime._infer_dawn_patches(
         host,
         context,
         plans,
@@ -460,10 +460,10 @@ def test_grouped_inference_releases_current_group_when_prediction_fails(monkeypa
 
         return _pipeline_double(predict)
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda *_args: None)
     with pytest.raises(RuntimeError, match="prediction failed"):
-        runtime._infer_patches(
+        runtime._infer_dawn_patches(
             _host_double(),
             None,
             plans,
@@ -497,7 +497,7 @@ def test_preview_observer_failure_stops_patches_and_releases_gpu_group(
 
         return _pipeline_double(predict)
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda _image, _context, plan, _capacity: plan)
     execution = runtime._PatchExecution(
         SimpleNamespace(array=np.zeros((12,) * 3, dtype=np.float32)),
@@ -505,7 +505,7 @@ def test_preview_observer_failure_stops_patches_and_releases_gpu_group(
         SimpleNamespace(on_progress=on_progress),
     )
     with pytest.raises(RuntimeError, match="preview failed"):
-        runtime._infer_patches(_host_double(), None, plans, execution, queue_depth=queue_depth)
+        runtime._infer_dawn_patches(_host_double(), None, plans, execution, queue_depth=queue_depth)
     assert len(predicted) == min(queue_depth, len(plans))
     assert closed == [True]
 
@@ -528,7 +528,7 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
     def pipeline(_resources, _host, _model, _case, _ct_buffer):
         return _pipeline_double(lambda _case: np.ones((48,) * 3, dtype=bool))
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     baseline = predict_model_o(
         input_path,
         tmp_path / "model",

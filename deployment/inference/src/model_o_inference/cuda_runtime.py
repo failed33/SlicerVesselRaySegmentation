@@ -19,7 +19,7 @@ from .stitching import mask_from_logits
 
 
 @dataclass(frozen=True)
-class _Pending:
+class _PendingPatch:
     logits: ort.OrtValue
     # Retain pageable upload owners until the shared stream completes.
     case: PackedRayCase
@@ -27,6 +27,8 @@ class _Pending:
 
 
 class CudaPatchInference:
+    """Own one capacity group's session and sampler; retain uploads until collection."""
+
     def __init__(
         self, host: CudaHost, model_path: Path, case: PackedRayCase, volume: ort.OrtValue
     ) -> None:
@@ -58,30 +60,30 @@ class CudaPatchInference:
         if "CUDAExecutionProvider" not in self.native_session.get_providers():
             raise RuntimeError("ModelO CUDA session did not initialize CUDAExecutionProvider")
         self.logits = host.empty((1, 1, PATCH_SIZE, PATCH_SIZE, PATCH_SIZE), np.dtype(np.float32))
-        self.builder = CudaPatchInputs(host, case, volume)
+        self._inputs = CudaPatchInputs(host, case, volume)
         try:
             self.binding = self.native_session.io_binding()
-            for name, tensor in self.builder.gpu_inputs.items():
+            for name, tensor in self._inputs.gpu_inputs.items():
                 self.binding.bind_ortvalue_input(name, tensor)
             self.binding.bind_ortvalue_output(OUTPUT_NAME, self.logits)
             self.run_options = ort.RunOptions()
             self.run_options.add_run_config_entry("disable_synchronize_execution_providers", "1")
         except BaseException:
-            self.builder.close()
+            self._inputs.close()
             raise
 
-    def submit(self, case: PackedRayCase, resources: ExitStack) -> _Pending:
-        config = self.builder.generate(case)
+    def submit(self, case: PackedRayCase, resources: ExitStack) -> _PendingPatch:
+        config = self._inputs.generate(case)
         self.native_session.run_with_iobinding(self.binding, self.run_options)
         snapshot = self.host.empty(tuple(self.logits.shape()), np.dtype(np.float32))
-        self.host.copy(snapshot, self.logits, PATCH_SIZE**3 * 4)
-        return _Pending(snapshot, case, config)
+        self.host.copy(snapshot, self.logits, self.logits.tensor_size_in_bytes())
+        return _PendingPatch(snapshot, case, config)
 
-    def collect(self, readback: _Pending) -> np.ndarray:
+    def collect(self, readback: _PendingPatch) -> np.ndarray:
         self.host.synchronize()
         return mask_from_logits(readback.logits.numpy().reshape((PATCH_SIZE,) * 3))
 
     def close(self) -> None:
-        self.builder.close()
+        self._inputs.close()
         # Release ORT's arena before the next capacity group is constructed.
-        del self.binding, self.native_session, self.logits, self.builder
+        del self.binding, self.native_session, self.logits, self._inputs

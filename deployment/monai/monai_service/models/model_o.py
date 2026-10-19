@@ -1,8 +1,8 @@
-"""ModelO polyline schema, workflow and shared-device Dawn worker.
+"""ModelO polyline schema, workflow and GPU worker.
 
 Callers supply ordered polylines in the submitted CT's ZYX voxel grid. Shared
-preparation generates fixed-point rays and selects patches; Dawn generates the
-seven ONNX inputs and consumes logits on the same GPU queue.
+preparation generates fixed-point rays and selects patches. Dawn and CUDA generate
+the seven ONNX inputs and consume logits on their shared device queue.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class _ModelOPreviews:
 
 
 class ModelOSettings(BaseSettings):
-    """Server-owned native assets, bound into the selected worker by its executor."""
+    """Server-owned backend, assets and queue policy for the selected worker."""
 
     model_config = SettingsConfigDict(
         env_prefix="MONAI_SERVICE_MODEL_O_", frozen=True, extra="forbid"
@@ -79,7 +79,7 @@ class ModelOWorkflow:
     settings: ModelOSettings = field(default_factory=ModelOSettings)
     descriptor = ModelDescriptor(
         title="ModelO",
-        description="ModelO vessel segmentation from CT and ordered voxel polylines on Dawn.",
+        description="ModelO vessel segmentation from CT and ordered voxel polylines.",
         labels={"background": 0, "vessel": 1},
         dimension=3,
         input_profile="polylines",

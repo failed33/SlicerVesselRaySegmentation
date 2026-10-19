@@ -79,7 +79,7 @@ def _pipeline(host: _Host, *, nonfinite: float | None = None):
         submit=submit,
         native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"]),
     )
-    return runtime._GpuPatchInference(host, builder, session, logits)
+    return runtime._DawnPatchInference(host, builder, session, logits)
 
 
 def _cases(count: int):
@@ -170,7 +170,7 @@ def test_consumer_failure_closes_uncollected_stages_before_group_and_ct(
     def fail(*_args):
         raise RuntimeError("consumer failed")
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", group)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", group)
     monkeypatch.setattr(
         runtime,
         "_ray_case",
@@ -188,7 +188,7 @@ def test_consumer_failure_closes_uncollected_stages_before_group_and_ct(
         SimpleNamespace(on_progress=fail) if failure == "observer" else None,
     )
     with pytest.raises(RuntimeError, match="consumer failed"):
-        runtime._infer_patches(host, None, plans, execution, queue_depth=queue_depth)
+        runtime._infer_dawn_patches(host, None, plans, execution, queue_depth=queue_depth)
     assert closed == ["group"]
     assert len(host.stages) == queue_depth
     assert all(stage.closed for stage in host.stages)

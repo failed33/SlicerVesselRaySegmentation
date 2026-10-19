@@ -386,7 +386,7 @@ def run_trained_native(
     host: Any, directory: Path, manifest: dict[str, Any], ct: Any
 ) -> dict[str, Any]:
     from model_o_inference.inputs import PackedRayCase
-    from model_o_inference.runtime import _gpu_pipeline
+    from model_o_inference.runtime import _dawn_pipeline
 
     model_path = directory / manifest["model"]["file"]
     assert hashlib.sha256(model_path.read_bytes()).hexdigest() == manifest["model"]["sha256"]
@@ -397,7 +397,7 @@ def run_trained_native(
         volume = np.fromfile(directory / first["volume"], np.float32).reshape(
             manifest["volume_shape"]
         )
-        pipeline = _gpu_pipeline(
+        pipeline = _dawn_pipeline(
             resources,
             host,
             model_path,

@@ -65,12 +65,10 @@ def _parameter_record(shader: Shader, storage: dict[str, tuple[int, int]]) -> np
             raise ValueError("CUDA shader requires contiguous 64-bit pointer/count pairs")
         pointer, nbytes = storage[parameter["name"]]
         # Counts are in shader records. Reflection supplies the record stride.
-        stride = parameter["type"]["resultType"].get("size", 0)
-        if not stride:
-            scalar = parameter["type"]["resultType"]
-            stride = 8 if scalar.get("kind") == "vector" else 4
-            if scalar.get("kind") == "struct":
-                stride = len(scalar["fields"]) * 4
+        element = parameter["type"]["resultType"]
+        stride = 8 if element["kind"] == "vector" else 4
+        if element["kind"] == "struct":
+            stride = len(element["fields"]) * 4
         if nbytes % stride:
             raise ValueError("CUDA buffer size must contain whole shader records")
         record[index] = (pointer, nbytes // stride)
@@ -78,12 +76,16 @@ def _parameter_record(shader: Shader, storage: dict[str, tuple[int, int]]) -> np
 
 
 class CudaPatchInputs:
+    """Own the sampler module and tensors, borrowing the host's stream and CT."""
+
     def __init__(self, host: CudaHost, case: RayCase | PackedRayCase, volume: ort.OrtValue) -> None:
-        self.host, self.case = host, case
-        self.shader = load_shader("patch_inputs", "cuda")
-        self.specs = output_specs(case.n_rays)
-        self.storage = {spec.name: host.empty(spec.shape, spec.dtype) for spec in self.specs}
-        self.storage.update(
+        self.host = host
+        self._shader = load_shader("patch_inputs", "cuda")
+        self.gpu_inputs = {
+            spec.name: host.empty(spec.shape, spec.dtype) for spec in output_specs(case.n_rays)
+        }
+        self._storage = dict(
+            self.gpu_inputs,
             config=host.empty((config_dtype().itemsize,), np.dtype(np.uint8)),
             volume_zyx=volume,
             ray_geometry=host.empty((case.n_rays, 7), np.dtype(np.uint32)),
@@ -92,21 +94,18 @@ class CudaPatchInputs:
         # overwrite another request's Slang global parameter block.
         self.module = checked(host.driver.cuModuleLoadData(_compile_cubin(host.capability)))
         try:
-            self.kernel = checked(
-                host.driver.cuModuleGetFunction(self.module, self.shader.entry_point.encode())
+            self._kernel = checked(
+                host.driver.cuModuleGetFunction(self.module, self._shader.entry_point.encode())
             )
             pointer, size = checked(
                 host.driver.cuModuleGetGlobal(self.module, b"SLANG_globalParams")
             )
-            sizes = {spec.name: spec.nbytes for spec in self.specs}
-            sizes.update(
-                config=config_dtype().itemsize,
-                volume_zyx=case.volume.nbytes,
-                ray_geometry=case.n_rays * 28,
-            )
             record = _parameter_record(
-                self.shader,
-                {name: (tensor.data_ptr(), sizes[name]) for name, tensor in self.storage.items()},
+                self._shader,
+                {
+                    name: (tensor.data_ptr(), tensor.tensor_size_in_bytes())
+                    for name, tensor in self._storage.items()
+                },
             )
             if size != record.nbytes:
                 raise ValueError("CUDA global parameter size does not match reflection")
@@ -115,25 +114,21 @@ class CudaPatchInputs:
             checked(host.driver.cuModuleUnload(self.module))
             raise
 
-    @property
-    def gpu_inputs(self) -> dict[str, ort.OrtValue]:
-        return {spec.name: self.storage[spec.name] for spec in self.specs}
-
     def generate(self, case: PackedRayCase) -> np.ndarray:
         depth, height, width = case.volume.shape
         z, y, x = case.center - PATCH_SIZE // 2
         config = config_record(
             (depth, height, width), case.n_rays, case.h0, (int(z), int(y), int(x))
         )
-        self.host.upload(self.storage["config"], config)
-        self.host.upload(self.storage["ray_geometry"], case.geometry)
+        self.host.upload(self._storage["config"], config)
+        self.host.upload(self._storage["ray_geometry"], case.geometry)
         checked(
             self.host.driver.cuLaunchKernel(
-                self.kernel,
-                self.shader.workgroups(case.n_rays + PATCH_SIZE**3),
+                self._kernel,
+                self._shader.workgroups(case.n_rays + PATCH_SIZE**3),
                 1,
                 1,
-                self.shader.metadata["entryPoints"][0]["threadGroupSize"][0],
+                self._shader.metadata["entryPoints"][0]["threadGroupSize"][0],
                 1,
                 1,
                 0,

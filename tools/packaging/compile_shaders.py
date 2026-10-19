@@ -1,4 +1,4 @@
-"""Regenerate packaged WGSL and reflection with the pinned Slang compiler."""
+"""Regenerate packaged WGSL, CUDA and reflection with the pinned Slang compiler."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "deployment/inference/src"
@@ -30,7 +31,7 @@ ASSETS = {
         "495682d2fd145dcc93cf762ab92e9fec1803f0c578dd0594c5d767954c46fb7b",
     ),
 }
-FLAGS = ["-target", "wgsl", "-entry", "main", "-stage", "compute", "-fp-mode", "precise"]
+FLAGS = ["-entry", "main", "-stage", "compute", "-fp-mode", "precise"]
 
 
 def download_compiler(cache: Path) -> Path:
@@ -79,11 +80,12 @@ def compile_shaders(compiler: Path, output: Path) -> None:
     if (version.stdout + version.stderr).strip() != VERSION:
         raise ValueError(f"Expected Slang {VERSION}, got {version.stdout}{version.stderr}")
     values = constants()
+    source = SHADERS / "patch_inputs.slang"
     output.mkdir(parents=True, exist_ok=True)
-    for name in ("patch_inputs",):
-        source = SHADERS / f"{name}.slang"
-        code, reflection = output / f"{name}.wgsl", output / f"{name}.json"
-        flags = [*FLAGS, *(f"-D{key}={value}" for key, value in values.items())]
+    for target in ("wgsl", "cuda"):
+        code = output / f"{source.stem}.{'cu' if target == 'cuda' else 'wgsl'}"
+        reflection = output / f"{source.stem}{'.cuda' if target == 'cuda' else ''}.json"
+        flags = ["-target", target, *FLAGS, *(f"-D{k}={v}" for k, v in values.items())]
         subprocess.run(
             [
                 str(compiler),
@@ -98,35 +100,22 @@ def compile_shaders(compiler: Path, output: Path) -> None:
             check=True,
         )
         metadata = json.loads(reflection.read_text())
-        metadata["build"] = {
+        dependencies = package_cuda(compiler, code, metadata) if target == "cuda" else {}
+        build: dict[str, Any] = {
             "compiler": VERSION,
             "flags": flags,
             "constants": values,
             "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-            "wgsl_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
+            f"{target}_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
         }
+        if dependencies:
+            build["dependencies"] = dependencies
+        metadata["build"] = build
         reflection.write_text(json.dumps(metadata, indent=2) + "\n")
-        compile_cuda(compiler, source, output, values)
 
 
-def compile_cuda(compiler: Path, source: Path, output: Path, values: dict[str, int]) -> None:
-    """Ship CUDA from the same Slang source, including its matching prelude."""
-    code = output / f"{source.stem}.cu"
-    reflection = output / f"{source.stem}.cuda.json"
-    flags = ["-target", "cuda", *FLAGS[2:], *(f"-D{k}={v}" for k, v in values.items())]
-    subprocess.run(
-        [
-            str(compiler),
-            source.relative_to(ROOT).as_posix(),
-            *flags,
-            "-o",
-            str(code),
-            "-reflection-json",
-            str(reflection),
-        ],
-        cwd=ROOT,
-        check=True,
-    )
+def package_cuda(compiler: Path, code: Path, metadata: dict[str, Any]) -> dict[str, str]:
+    """Make generated CUDA relocatable and include its matching Slang prelude."""
     prelude = compiler.parent.parent / "include/slang-cuda-prelude.h"
     text = code.read_text()
     include = f'#include "{prelude}"'
@@ -136,26 +125,16 @@ def compile_cuda(compiler: Path, source: Path, output: Path, values: dict[str, i
     kernels = re.findall(r'extern "C" __global__ void (\w+)\(\)', text)
     if len(kernels) != 1:
         raise ValueError("Expected one argument-free Slang CUDA kernel")
-    metadata = json.loads(reflection.read_text())
     metadata["entryPoints"][0]["name"] = kernels[0]
     dependencies = {
         "slang-cuda-prelude.h": prelude,
         "SLANG_LICENSE.txt": compiler.parent.parent / "LICENSE",
     }
     for name, path in dependencies.items():
-        shutil.copyfile(path, output / name)
-    metadata["build"] = {
-        "compiler": VERSION,
-        "flags": flags,
-        "constants": values,
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-        "cuda_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
-        "dependencies": {
-            name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for name, path in dependencies.items()
-        },
+        shutil.copyfile(path, code.parent / name)
+    return {
+        name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in dependencies.items()
     }
-    reflection.write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 def main() -> None:
