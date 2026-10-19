@@ -45,7 +45,7 @@ packages = ["monai_service", "label_app"]
 include = ["/monai_service", "/label_app", "/asgi.py", "/vessel_deployment.py", "/pyproject.toml", "/README.md", "/LICENSE.txt"]
 
 [tool.uv]
-required-version = ">=0.12.23"
+required-version = ">=0.10.7"
 constraint-dependencies = ["scipy==1.13.1", "scikit-image==0.26.0"]
 conflicts = [
     [{ group = "arg-cuda" }, { extra = "arg" }],
@@ -54,6 +54,12 @@ conflicts = [
     [{ group = "arg-cuda" }, { group = "arg-webgpu" }],
     [{ group = "arg-cuda" }, { group = "model-o" }],
     [{ group = "arg-cuda" }, { group = "dev" }],
+    [{ group = "model-o-cuda" }, { extra = "arg" }],
+    [{ group = "model-o-cuda" }, { extra = "model-o" }],
+    [{ group = "model-o-cuda" }, { group = "arg" }],
+    [{ group = "model-o-cuda" }, { group = "arg-webgpu" }],
+    [{ group = "model-o-cuda" }, { group = "model-o" }],
+    [{ group = "model-o-cuda" }, { group = "dev" }],
 ]
 
 # Label needs Torch. Our ONNX inference does not use it; select CPU Torch on
@@ -104,6 +110,11 @@ arg-cuda = [
     "onnxruntime-gpu[cuda,cudnn]==1.30.0",
     # The newer Linux cuBLAS release does not publish Windows wheels.
     "nvidia-cublas==13.8.0.4; sys_platform == 'win32'",
+]
+model-o-cuda = [
+    {include-group = "arg-cuda"},
+    "vessel-inference[model-o-support]",
+    "cuda-bindings>=13,<14",
 ]
 arg-webgpu = [
     {include-group = "arg"},

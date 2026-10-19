@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import SimpleITK as sitk
-from model_o_inference.runtime import _read_ct, predict_model_o
+from model_o_inference.runtime import ModelOExecution, _read_ct, predict_model_o
 from pydantic import ValidationError
 
 from monai_service.contracts import ArtifactIdentity, InferenceRequest, ResolvedArtifact
@@ -46,9 +46,7 @@ def _pipeline_double(predict):
     return SimpleNamespace(
         submit=lambda case, _resources: predict(case),
         collect=lambda mask: mask,
-        session=SimpleNamespace(
-            native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"])
-        ),
+        native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"]),
     )
 
 
@@ -217,7 +215,11 @@ def test_worker_passes_submitted_ct_and_polylines_to_shared_preparation(
     monkeypatch.setattr(planning, "build_patch_plans", reach_planner)
     with pytest.raises(PlanningReached):
         predict_model_o(
-            input_path, tmp_path / "model", output_path, parameters, tmp_path / "assets"
+            input_path,
+            tmp_path / "model",
+            output_path,
+            parameters,
+            ModelOExecution(assets=tmp_path / "assets"),
         )
     assert len(captured) == 1
     assert not output_path.exists()
@@ -532,7 +534,7 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
         tmp_path / "model",
         tmp_path / "baseline.nrrd",
         ModelOParameters.model_validate(polyline_data),
-        tmp_path / "assets",
+        ModelOExecution(assets=tmp_path / "assets"),
     )
     previews = []
     observer = SimpleNamespace(
@@ -543,8 +545,7 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
         tmp_path / "model",
         output_path,
         ModelOParameters.model_validate(polyline_data),
-        tmp_path / "assets",
-        observer=observer,
+        ModelOExecution(assets=tmp_path / "assets", observer=observer),
     )
     assert {key: value for key, value in metadata.items() if key != "timings_seconds"} == {
         key: value for key, value in baseline.items() if key != "timings_seconds"
@@ -621,7 +622,9 @@ def test_real_native_model_o_preserves_binary_output_and_physical_geometry(tmp_p
         ]
     )
 
-    metadata = predict_model_o(input_path, model, output_path, parameters, assets)
+    metadata = predict_model_o(
+        input_path, model, output_path, parameters, ModelOExecution(assets=assets)
+    )
     mask = sitk.ReadImage(str(output_path))
     assert mask.GetSize() == image.GetSize()
     assert mask.GetPixelID() == sitk.sitkUInt8

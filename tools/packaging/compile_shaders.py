@@ -6,6 +6,8 @@ import argparse
 import hashlib
 import json
 import platform
+import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -104,6 +106,56 @@ def compile_shaders(compiler: Path, output: Path) -> None:
             "wgsl_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
         }
         reflection.write_text(json.dumps(metadata, indent=2) + "\n")
+        compile_cuda(compiler, source, output, values)
+
+
+def compile_cuda(compiler: Path, source: Path, output: Path, values: dict[str, int]) -> None:
+    """Ship CUDA from the same Slang source, including its matching prelude."""
+    code = output / f"{source.stem}.cu"
+    reflection = output / f"{source.stem}.cuda.json"
+    flags = ["-target", "cuda", *FLAGS[2:], *(f"-D{k}={v}" for k, v in values.items())]
+    subprocess.run(
+        [
+            str(compiler),
+            source.relative_to(ROOT).as_posix(),
+            *flags,
+            "-o",
+            str(code),
+            "-reflection-json",
+            str(reflection),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    prelude = compiler.parent.parent / "include/slang-cuda-prelude.h"
+    text = code.read_text()
+    include = f'#include "{prelude}"'
+    if not text.startswith(include):
+        raise ValueError("Unexpected Slang CUDA prelude include")
+    code.write_text(text.replace(include, '#include "slang-cuda-prelude.h"', 1).rstrip() + "\n")
+    kernels = re.findall(r'extern "C" __global__ void (\w+)\(\)', text)
+    if len(kernels) != 1:
+        raise ValueError("Expected one argument-free Slang CUDA kernel")
+    metadata = json.loads(reflection.read_text())
+    metadata["entryPoints"][0]["name"] = kernels[0]
+    dependencies = {
+        "slang-cuda-prelude.h": prelude,
+        "SLANG_LICENSE.txt": compiler.parent.parent / "LICENSE",
+    }
+    for name, path in dependencies.items():
+        shutil.copyfile(path, output / name)
+    metadata["build"] = {
+        "compiler": VERSION,
+        "flags": flags,
+        "constants": values,
+        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "cuda_sha256": hashlib.sha256(code.read_bytes()).hexdigest(),
+        "dependencies": {
+            name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for name, path in dependencies.items()
+        },
+    }
+    reflection.write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 def main() -> None:

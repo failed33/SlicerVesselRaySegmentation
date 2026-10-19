@@ -197,7 +197,8 @@ def generate(output: Path) -> dict[str, Any]:
 def run_native(host: Any, directory: Path) -> dict[str, Any]:
     import onnxruntime as ort
     from dawn_ort import DeviceTensor, GpuSession
-    from model_o_inference.dawn_inputs import DawnPatchInputs, PackedRayCase
+    from model_o_inference.dawn_inputs import DawnPatchInputs
+    from model_o_inference.inputs import PackedRayCase
 
     manifest = json.loads((directory / "model_o.json").read_text())
     geometry = np.fromfile(directory / manifest["geometry"], np.uint32).reshape(-1, 7)
@@ -354,7 +355,7 @@ def attach_model(directory: Path, path: Path) -> None:
 def run_trained_native(
     host: Any, directory: Path, manifest: dict[str, Any], ct: Any
 ) -> dict[str, Any]:
-    from model_o_inference.dawn_inputs import PackedRayCase
+    from model_o_inference.inputs import PackedRayCase
     from model_o_inference.runtime import _gpu_pipeline
 
     model_path = directory / manifest["model"]["file"]

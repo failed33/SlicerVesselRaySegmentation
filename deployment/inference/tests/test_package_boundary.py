@@ -7,6 +7,7 @@ from pathlib import Path
 
 _SOURCE = Path(__file__).resolve().parents[1] / "src"
 _NUMERICAL_MODULES = (
+    "inputs",
     "geometry",
     "constants",
     "lattice",
@@ -113,7 +114,13 @@ def test_model_runtime_has_no_source_checkout_or_serving_dependencies():
     forbidden = {"VesselPathTracerLib", "VesselBranchSplitterLib", "monai_service", "examples"}
     violations = [
         (str(path.relative_to(_SOURCE)), name)
-        for package in ("arg_inference", "model_o_inference", "model_artifacts", "label_inference")
+        for package in (
+            "arg_inference",
+            "model_o_inference",
+            "cuda_ort",
+            "model_artifacts",
+            "label_inference",
+        )
         for path in (_SOURCE / package).rglob("*.py")
         for name in _absolute_imports(path)
         if name.split(".")[0] in forbidden

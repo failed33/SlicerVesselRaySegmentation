@@ -86,9 +86,11 @@ def test_model_o_worker_flag_publishes_native_grid_preview(tmp_path, monkeypatch
     mask.SetOrigin((8, 9, 10))
     mask[1, 2, 3] = 1
 
-    def predict(*args, observer, queue_depth):
-        assert queue_depth == 4
-        observer.on_progress(PatchProgress(1, 2, 0.5), lambda: mask)
+    def predict(*args):
+        execution = args[4]
+        assert execution.backend == "dawn"
+        assert execution.queue_depth == 4
+        execution.observer.on_progress(PatchProgress(1, 2, 0.5), lambda: mask)
         sitk.WriteImage(mask, str(args[2]))
         return {"patches": 2}
 

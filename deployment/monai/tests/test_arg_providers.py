@@ -14,10 +14,10 @@ from arg_inference import providers
 
 @pytest.fixture(autouse=True)
 def clear_cuda_initialization_cache() -> Iterator[None]:
-    providers._initialize_cuda.cache_clear()
+    providers.initialize_cuda.cache_clear()
     providers._initialize_plugin.cache_clear()
     yield
-    providers._initialize_cuda.cache_clear()
+    providers.initialize_cuda.cache_clear()
     providers._initialize_plugin.cache_clear()
 
 
@@ -250,7 +250,7 @@ def test_only_auto_can_fall_back_after_cuda_setup_failure(
         calls.append("session")
         return _assigned_session({cpu.ep_name: 2})
 
-    monkeypatch.setattr(providers, "_initialize_cuda", initialize)
+    monkeypatch.setattr(providers, "initialize_cuda", initialize)
     monkeypatch.setattr(ort, "InferenceSession", create)
     if device == "auto":
         with pytest.warns(RuntimeWarning, match="accelerator initialization failed"):

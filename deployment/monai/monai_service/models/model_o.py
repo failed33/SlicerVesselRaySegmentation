@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from model_o_inference.schemas import ModelOParameters
-from pydantic import BeforeValidator, TypeAdapter
+from pydantic import BeforeValidator, TypeAdapter, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from monai_service.contracts import (
@@ -63,8 +63,15 @@ class ModelOSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MONAI_SERVICE_MODEL_O_", frozen=True, extra="forbid"
     )
-    assets: Path
+    backend: Literal["dawn", "cuda"] = "dawn"
+    assets: Path | None = None
     queue_depth: Annotated[Literal[1, 2, 4], BeforeValidator(TypeAdapter(int).validate_python)] = 1
+
+    @model_validator(mode="after")
+    def native_assets_are_explicit(self):
+        if self.backend == "dawn" and self.assets is None:
+            raise ValueError("ModelO Dawn backend requires native assets")
+        return self
 
 
 @dataclass(frozen=True)
@@ -92,8 +99,9 @@ class ModelOWorkflow:
                 *invocation.arguments,
                 "--model",
                 FileArgument("model"),
-                "--assets",
-                FileArgument("assets"),
+                "--backend",
+                self.settings.backend,
+                *(("--assets", FileArgument("assets")) if self.settings.assets else ()),
                 "--parameters",
                 FileArgument("parameters"),
                 "--queue-depth",
@@ -102,7 +110,7 @@ class ModelOWorkflow:
             bindings=(
                 *invocation.bindings,
                 FileBinding("model", artifact.path),
-                FileBinding("assets", self.settings.assets),
+                *((FileBinding("assets", self.settings.assets),) if self.settings.assets else ()),
                 FileBinding("parameters", parameters_path),
             ),
         )
@@ -138,7 +146,7 @@ class ModelOWorkflow:
         artifact: ResolvedArtifact,
         workspace: Path,
     ) -> InferenceResult:
-        from model_o_inference.runtime import predict_model_o
+        from model_o_inference.runtime import ModelOExecution, predict_model_o
 
         output = workspace / "mask.nii.gz"
         metadata = predict_model_o(
@@ -146,8 +154,11 @@ class ModelOWorkflow:
             artifact.path,
             output,
             request.parameters,
-            self.settings.assets,
-            queue_depth=self.settings.queue_depth,
+            ModelOExecution(
+                assets=self.settings.assets,
+                backend=self.settings.backend,
+                queue_depth=self.settings.queue_depth,
+            ),
         )
         return InferenceResult(output, {**metadata, "test_only": False})
 
@@ -171,7 +182,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--model", required=True, type=Path)
-    parser.add_argument("--assets", required=True, type=Path)
+    parser.add_argument("--assets", type=Path)
+    parser.add_argument("--backend", choices=("dawn", "cuda"), default="dawn")
     parser.add_argument("--parameters", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metadata", type=Path)
@@ -179,7 +191,7 @@ def main() -> None:
     parser.add_argument("--queue-depth", type=int, choices=(1, 2, 4), default=1)
     arguments = parser.parse_args()
     parameters = ModelOParameters.model_validate_json(arguments.parameters.read_bytes())
-    from model_o_inference.runtime import predict_model_o
+    from model_o_inference.runtime import ModelOExecution, predict_model_o
 
     observer = None
     if arguments.preview_directory is not None:
@@ -189,9 +201,12 @@ def main() -> None:
         arguments.model,
         arguments.output,
         parameters,
-        arguments.assets,
-        observer=observer,
-        queue_depth=arguments.queue_depth,
+        ModelOExecution(
+            assets=arguments.assets,
+            backend=arguments.backend,
+            observer=observer,
+            queue_depth=arguments.queue_depth,
+        ),
     )
     serialized = json.dumps(metadata, allow_nan=False)
     if arguments.metadata is not None:

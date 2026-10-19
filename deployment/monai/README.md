@@ -39,9 +39,53 @@ The wheel includes `asgi.py`, `vessel_deployment.py`, `label_app/main.py` and
 for native Label's logs and auxiliary files. Use a persistent writable work
 and session directory. Configure authentication and TLS for external hosting.
 
-ModelO additionally needs the `model-o` extra and the separately built matched
-native bundle. `MONAI_SERVICE_MODEL_O_ASSETS` points to its extracted
-location. Model weights are resolved through MLflow, never baked into packages.
+ModelO defaults to Dawn and needs the `model-o` extra and the separately built
+matched native bundle. `MONAI_SERVICE_MODEL_O_ASSETS` points to its extracted
+location. Model weights are supplied separately.
+
+## CUDA execution
+
+The CUDA environment supports both ARG and ModelO, including NVIDIA MIG devices.
+It needs a CUDA 13 compatible driver, Python 3.12 and uv 0.10.7 or newer:
+
+```sh
+uv sync --project deployment/monai --python 3.12 --frozen --no-dev --group model-o-cuda
+export MONAI_SERVICE_ARG_DEVICE=gpu
+export MONAI_SERVICE_MODEL_O_BACKEND=cuda
+uv run --project deployment/monai --no-sync python -m uvicorn \
+  asgi:app --app-dir deployment/monai --host 127.0.0.1 --port 8000
+```
+
+Configure enabled models and their artifact sources before starting the server.
+CUDA ModelO does not need `MONAI_SERVICE_MODEL_O_ASSETS`, Dawn or Vulkan. Its
+sampler is generated from the same Slang source as the native/browser WebGPU
+sampler. NVIDIA CUDA Python compiles it with NVRTC for the allocated GPU; ORT
+owns the tensors and executes on the same CUDA stream. No training framework is
+used by either inference worker. Label retains upstream's CPU Torch dependency.
+
+The `model_o_cuda` container target supplies this worker environment. Select
+`MONAI_SERVICE_MODEL_O_BACKEND=cuda` in the coordinator so its worker invocation
+uses the matching backend. The existing `model_o` target supplies Dawn.
+
+## Offline model snapshots
+
+An endpoint can serve pre-synchronized MLflow artifacts without registry access:
+
+```sh
+export MONAI_SERVICE_ARG_MODEL_DIR=/absolute/models/current/arg
+export MONAI_SERVICE_MODEL_O_MODEL_DIR=/absolute/models/current/model_o
+```
+
+Each directory contains its ordinary serving files and `model-source.json`,
+written by `model_artifacts.snapshot.write_snapshot`. The manifest records the
+MLflow model name, exact version, model URI, tracking/registry URIs and every
+artifact's SHA-256. The service verifies those checksums and reports the original
+MLflow identity in its normal inference response. These directory settings take
+precedence over registry lookup for the corresponding task.
+
+Publish complete versioned directories, then atomically replace a `current`
+symlink. Each request resolves that link once and keeps the resolved directory
+through worker completion. Retain old directories while requests use them.
 
 ## Containers
 

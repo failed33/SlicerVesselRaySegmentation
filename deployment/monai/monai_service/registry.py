@@ -10,6 +10,7 @@ from typing import Annotated
 from pydantic import BeforeValidator, Field, StringConstraints, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from monai_service.adapters.directory import DirectoryArtifactSource
 from monai_service.adapters.executor_config import executor_from_env
 from monai_service.adapters.mlflow import MLflowArtifactSource, ModelSource
 from monai_service.config import ServiceSettings
@@ -42,6 +43,12 @@ class ModelSourceSettings(BaseSettings):
         )
 
 
+class LocalSourceSettings(BaseSettings):
+    model_config = SettingsConfigDict(frozen=True, extra="forbid")
+
+    model_dir: Path | None = None
+
+
 def _validate_definitions(definitions: Sequence[TaskDefinition]) -> None:
     identifiers = {task.identifier for task in definitions}
     environment_keys = {task.key.casefold() for task in definitions}
@@ -60,10 +67,15 @@ def _deployment_from_env(
     task: TaskDefinition[Parameters], work_dir: Path
 ) -> ModelDeployment[Parameters]:
     prefix = f"MONAI_SERVICE_{task.key}"
-    source = ModelSourceSettings(_env_prefix=f"{prefix}_")
+    local = LocalSourceSettings(_env_prefix=f"{prefix}_")
+    artifacts = (
+        DirectoryArtifactSource(local.model_dir)
+        if local.model_dir is not None
+        else ModelSourceSettings(_env_prefix=f"{prefix}_").artifacts(work_dir)
+    )
     return ModelDeployment(
         workflow=task.workflow_factory(),
-        artifacts=source.artifacts(work_dir),
+        artifacts=artifacts,
         executor=executor_from_env(prefix),
         parse_parameters=task.parse_parameters,
     )

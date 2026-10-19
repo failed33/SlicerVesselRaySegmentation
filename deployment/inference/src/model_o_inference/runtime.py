@@ -11,6 +11,7 @@ from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from .patch_execution import PatchFactory, PatchPipeline
 from .preview import PatchProgress, PreviewObserver
 from .schemas import ModelOParameters
 
@@ -25,7 +26,8 @@ if TYPE_CHECKING:
     from dawn_ort.host import Buffer
     from numpy.typing import NDArray
 
-    from .dawn_inputs import DawnPatchInputs, PackedRayCase
+    from .dawn_inputs import DawnPatchInputs
+    from .inputs import PackedRayCase
     from .planning import PatchPlan
     from .preparation import RayContext
     from .stitching import MaskMerger
@@ -50,7 +52,7 @@ class _PatchRun:
     execution: _PatchExecution
     context: RayContext
     merger: MaskMerger
-    ct_buffer: Buffer
+    pipeline_factory: PatchFactory
     total: int
     queue_depth: Literal[1, 2, 4]
     timings: dict[str, float]
@@ -95,7 +97,7 @@ def _ray_case(image: _Volume, context: RayContext, plan: PatchPlan, capacity: in
     """Gather Q16 geometry directly, padding with the existing invalid-ray sentinel."""
     import numpy as np
 
-    from .dawn_inputs import PackedRayCase, pack_ray_geometry
+    from .inputs import PackedRayCase, pack_ray_geometry
     from .lattice import FIXED_POINT_SCALE
 
     count = len(plan.ray_indices)
@@ -115,6 +117,10 @@ class _GpuPatchInference:
     builder: DawnPatchInputs
     session: GpuSession
     logits: Buffer
+
+    @property
+    def native_session(self):
+        return self.session.native_session
 
     def submit(self, case: PackedRayCase, resources: ExitStack) -> Buffer:
         self.builder.write_geometry(case.packed_geometry)
@@ -167,8 +173,8 @@ def _upload_ct(resources: ExitStack, host: DawnHost, image: _Volume) -> Buffer:
     return ct_buffer
 
 
-def _predict_windows(
-    pipeline: _GpuPatchInference,
+def _predict_windows[Pending](
+    pipeline: PatchPipeline[Pending],
     cases: Iterator[tuple[PatchPlan, PackedRayCase]],
     queue_depth: Literal[1, 2, 4],
     timings: dict[str, float],
@@ -230,52 +236,66 @@ def _infer_patches(
     queue_depth: Literal[1, 2, 4] = 1,
 ) -> tuple[NDArray[np.bool_], int, str, dict[str, float]]:
     """Measure CPU wall time; collection includes queued GPU completion and mapping."""
+
+    if type(queue_depth) is not int or queue_depth not in (1, 2, 4):
+        raise ValueError("ModelO queue depth must be 1, 2 or 4")
+    started = time.perf_counter()
+    with ExitStack() as resources:
+        ct_buffer = _upload_ct(resources, host, execution.image)
+        upload_seconds = time.perf_counter() - started
+
+        def pipeline_factory(group_resources: ExitStack, case: PackedRayCase):
+            return _gpu_pipeline(group_resources, host, execution.model_path, case, ct_buffer)
+
+        mask, capacity, provider, timings = _infer_groups(
+            context, plans, execution, pipeline_factory, queue_depth=queue_depth
+        )
+    timings["ct_upload"] = upload_seconds
+    return mask, capacity, provider, timings
+
+
+def _infer_groups(
+    context: RayContext,
+    plans: list[PatchPlan],
+    execution: _PatchExecution,
+    pipeline_factory: PatchFactory,
+    *,
+    queue_depth: Literal[1, 2, 4],
+) -> tuple[NDArray[np.bool_], int, str, dict[str, float]]:
     from .stitching import MaskMerger
 
     if type(queue_depth) is not int or queue_depth not in (1, 2, 4):
         raise ValueError("ModelO queue depth must be 1, 2 or 4")
-    image = execution.image
     groups = _capacity_groups(plans)
     capacity = max(groups)
-    logger.info(
-        "ModelO initializing %s GPU capacity groups: %s patches, maximum %s rays, queue depth %s",
-        len(groups),
-        len(plans),
-        capacity,
-        queue_depth,
-    )
-    merger = MaskMerger((image.array.shape[0], image.array.shape[1], image.array.shape[2]))
+    depth, height, width = execution.image.array.shape
+    merger = MaskMerger((depth, height, width))
     started = time.perf_counter()
-    provider = ""
     timings = dict.fromkeys(
-        ("ct_upload", "group_setup", "patch_submission", "patch_collection", "patch_merge"), 0.0
+        ("group_setup", "patch_submission", "patch_collection", "patch_merge"), 0.0
     )
-    with ExitStack() as request_resources:
-        ct_buffer = _upload_ct(request_resources, host, image)
-        timings["ct_upload"] = time.perf_counter() - started
-        run = _PatchRun(
-            execution, context, merger, ct_buffer, len(plans), queue_depth, timings, started
+    run = _PatchRun(
+        execution, context, merger, pipeline_factory, len(plans), queue_depth, timings, started
+    )
+    provider = ""
+    for group_index, (group_capacity, group_plans) in enumerate(groups.items(), start=1):
+        logger.info(
+            "ModelO GPU group %s/%s: %s patches, %s-ray capacity",
+            group_index,
+            len(groups),
+            len(group_plans),
+            group_capacity,
         )
-        for group_index, (group_capacity, group_plans) in enumerate(groups.items(), start=1):
-            logger.info(
-                "ModelO GPU group %s/%s: %s patches, %s-ray capacity",
-                group_index,
-                len(groups),
-                len(group_plans),
-                group_capacity,
-            )
-            provider = _infer_group(host, group_capacity, group_plans, run)
+        provider = _infer_group(group_capacity, group_plans, run)
     return merger.finalize(), capacity, provider, timings
 
 
-def _infer_group(host: DawnHost, capacity: int, plans: list[PatchPlan], run: _PatchRun) -> str:
+def _infer_group(capacity: int, plans: list[PatchPlan], run: _PatchRun) -> str:
     started = time.perf_counter()
     image = run.execution.image
     first_case = _ray_case(image, run.context, plans[0], capacity)
     with ExitStack() as resources:
-        pipeline = _gpu_pipeline(
-            resources, host, run.execution.model_path, first_case, run.ct_buffer
-        )
+        pipeline = run.pipeline_factory(resources, first_case)
         provider = _gpu_provider(pipeline)
         setup_seconds = time.perf_counter() - started
         run.timings["group_setup"] += setup_seconds
@@ -302,12 +322,12 @@ def _merge_prediction(run: _PatchRun, plan: PatchPlan, patch_mask: NDArray[np.bo
     run.last_log = _report_patch(run.execution, run.merger, progress, run.last_log)
 
 
-def _gpu_provider(pipeline: _GpuPatchInference) -> str:
-    providers = pipeline.session.native_session.get_providers()
+def _gpu_provider(pipeline: PatchPipeline) -> str:
+    providers = pipeline.native_session.get_providers()
     for name in providers:
-        if name.lower() == "webgpuexecutionprovider":
+        if name.lower() in {"webgpuexecutionprovider", "cudaexecutionprovider"}:
             return name
-    raise RuntimeError("ModelO session did not select the Dawn WebGPU provider")
+    raise RuntimeError("ModelO session did not select a supported GPU provider")
 
 
 def _prepare_patches(
@@ -369,15 +389,22 @@ def _patch_metadata(
     }
 
 
+@dataclass(frozen=True)
+class ModelOExecution:
+    """Server-owned device policy and optional progress observer."""
+
+    backend: Literal["dawn", "cuda"] = "dawn"
+    assets: Path | None = None
+    queue_depth: Literal[1, 2, 4] = 1
+    observer: PreviewObserver | None = None
+
+
 def predict_model_o(
     input_path: Path,
     model_path: Path,
     output_path: Path,
     parameters: ModelOParameters,
-    assets_path: Path,
-    *,
-    observer: PreviewObserver | None = None,
-    queue_depth: Literal[1, 2, 4] = 1,
+    execution: ModelOExecution,
 ) -> dict[str, object]:
     """Run patch inference, optionally observing lazy cumulative mask previews."""
     import SimpleITK as sitk
@@ -390,24 +417,16 @@ def predict_model_o(
     read_seconds = time.perf_counter() - started
     context, plans, timings = _prepare_patches(image, parameters)
     inference_started = time.perf_counter()
-    import onnxruntime as ort
-    from dawn_ort import DawnHost
-    from dawn_ort.platforms import platform_config
-
-    provider = assets_path / platform_config(sys.platform).provider_library
-    with ExitStack() as resources:
-        ort.register_execution_provider_library("dawn", str(provider.resolve()))
-        resources.callback(ort.unregister_execution_provider_library, "dawn")
-        host = DawnHost(assets_path / "webgpu.py")
-        resources.callback(host.close)
-        mask_array, capacity, provider_name, gpu_timings = _infer_patches(
-            host,
-            context,
-            plans,
-            _PatchExecution(image, model_path / "modelo.onnx", observer),
-            queue_depth=queue_depth,
+    request = _PatchExecution(image, model_path / "modelo.onnx", execution.observer)
+    if execution.backend == "cuda":
+        result = _run_cuda(context, plans, request, queue_depth=execution.queue_depth)
+    elif execution.backend == "dawn":
+        result = _run_dawn(
+            context, plans, request, execution.assets, queue_depth=execution.queue_depth
         )
-        backend = host.backend
+    else:
+        raise ValueError(f"Unknown ModelO backend: {execution.backend}")
+    mask_array, capacity, provider_name, backend_name, gpu_timings = result
     timings.update(
         gpu_timings, ct_read=read_seconds, inference=time.perf_counter() - inference_started
     )
@@ -419,14 +438,75 @@ def predict_model_o(
         "worker": "model_o",
         "model_file": "modelo.onnx",
         "provider": provider_name,
-        "backend": backend,
+        "backend": backend_name,
         "input_space": "input-voxel-zyx",
         "input_shape_zyx": list(image.array.shape),
         "spacing_zyx": list(image.spacing),
-        **_patch_metadata(context, plans, capacity, queue_depth),
+        **_patch_metadata(context, plans, capacity, execution.queue_depth),
         "overlap": parameters.overlap,
         "timings_seconds": timings,
         "timings_kind": "wall_clock",
         "logit_threshold": LOGIT_THRESHOLD,
         "steps": ["gpu_ray_inputs", "gpu_model_o", "logit_threshold", "binary_union"],
     }
+
+
+def _run_cuda(
+    context: RayContext,
+    plans: list[PatchPlan],
+    execution: _PatchExecution,
+    *,
+    queue_depth: Literal[1, 2, 4],
+):
+    from cuda_ort import initialize_cuda
+    from cuda_ort.host import CudaHost
+
+    from .cuda_runtime import CudaPatchInference
+
+    initialize_cuda()
+    with ExitStack() as resources:
+        host = CudaHost()
+        resources.callback(host.close)
+        upload_started = time.perf_counter()
+        ct_buffer = host.empty(tuple(execution.image.array.shape), execution.image.array.dtype)
+        host.upload(ct_buffer, execution.image.array)
+        host.synchronize()
+        upload_seconds = time.perf_counter() - upload_started
+
+        def pipeline_factory(group_resources: ExitStack, case: PackedRayCase):
+            pipeline = CudaPatchInference(host, execution.model_path, case, ct_buffer)
+            group_resources.callback(pipeline.close)
+            return pipeline
+
+        mask, capacity, provider, timings = _infer_groups(
+            context, plans, execution, pipeline_factory, queue_depth=queue_depth
+        )
+        timings["ct_upload"] = upload_seconds
+    return mask, capacity, provider, "cuda", timings
+
+
+def _run_dawn(
+    context: RayContext,
+    plans: list[PatchPlan],
+    execution: _PatchExecution,
+    assets_path: Path | None,
+    *,
+    queue_depth: Literal[1, 2, 4],
+):
+    import onnxruntime as ort
+    from dawn_ort import DawnHost
+    from dawn_ort.platforms import platform_config
+
+    if assets_path is None:
+        raise ValueError("ModelO Dawn backend requires native assets")
+    provider = assets_path / platform_config(sys.platform).provider_library
+    with ExitStack() as resources:
+        ort.register_execution_provider_library("dawn", str(provider.resolve()))
+        resources.callback(ort.unregister_execution_provider_library, "dawn")
+        host = DawnHost(assets_path / "webgpu.py")
+        resources.callback(host.close)
+        mask, capacity, provider_name, timings = _infer_patches(
+            host, context, plans, execution, queue_depth=queue_depth
+        )
+        backend = host.backend
+    return mask, capacity, provider_name, backend, timings
