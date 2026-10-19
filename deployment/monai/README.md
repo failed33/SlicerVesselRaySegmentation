@@ -69,6 +69,19 @@ uses the matching backend. The existing `model_o` target supplies Dawn.
 
 ## Local model files
 
+For a CUDA deployment with `models/arg` and `models/model_o` beneath one root,
+the installed application entry point configures both process workers and starts
+the service on localhost:
+
+```sh
+deployment/monai/.venv/bin/slicerray-serve --root /absolute/deployment-directory
+```
+
+It uses `runtime` beneath that directory for work and native sessions. The
+workers use the same Python environment as the entry point. `--port` defaults
+to 8000. Environment activation and scheduler resource selection belong to the
+deployment that invokes this command.
+
 Serve downloaded MLflow artifacts without registry access on the server:
 
 ```sh
