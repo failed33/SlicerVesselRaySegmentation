@@ -33,6 +33,8 @@ class CudaPatchInference:
         self.host = host
         initialize_cuda()
         options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
         options.add_session_config_entry("session.disable_prepacking", "1")
         options.add_session_config_entry("session.record_ep_graph_assignment_info", "1")

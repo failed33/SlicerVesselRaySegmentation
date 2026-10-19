@@ -352,7 +352,10 @@ def attach_model(directory: Path, path: Path) -> None:
     manifest = json.loads(manifest_path.read_text())
     model = prepare_model_o(str(path), manifest["rays"])
     (directory / "selected.onnx").write_bytes(model)
-    session = ort.InferenceSession(model, providers=["CPUExecutionProvider"])
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 4
+    options.inter_op_num_threads = 1
+    session = ort.InferenceSession(model, sess_options=options, providers=["CPUExecutionProvider"])
     # End-to-end provider arithmetic differs more than the sampled inputs.
     # Keep this tolerance separate from the strict shader checks and require
     # exact binary masks, including at the decision boundary.

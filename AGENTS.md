@@ -27,6 +27,12 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- ORT's automatic CPU thread count can follow the full node rather than a Slurm
+  allocation's cpuset. On Grete this emitted affinity errors and stalled the
+  CPU reference check. Keep explicit thread counts in CUDA host sessions and
+  their CPU acceptance references; OpenMP environment settings alone do not
+  configure ORT's thread pool.
+
 - ModelO gathers origins around the continuous selected origin, but truncates that
   origin for the integer output crop. Half-open boundary tests must cover both
   coordinate conventions. The planner's two explicit margin keywords control
