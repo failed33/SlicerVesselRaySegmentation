@@ -33,7 +33,6 @@ def check_installed_packages() -> dict[str, str]:
     for name in (
         "dawn_ort",
         "cuda_ort",
-        "model_artifacts.snapshot",
         "arg_inference",
         "model_o_inference",
         "monai_service",

@@ -67,25 +67,19 @@ The `model_o_cuda` container target supplies this worker environment. Select
 `MONAI_SERVICE_MODEL_O_BACKEND=cuda` in the coordinator so its worker invocation
 uses the matching backend. The existing `model_o` target supplies Dawn.
 
-## Offline model snapshots
+## Local model files
 
-An endpoint can serve pre-synchronized MLflow artifacts without registry access:
+Serve downloaded MLflow artifacts without registry access on the server:
 
 ```sh
-export MONAI_SERVICE_ARG_MODEL_DIR=/absolute/models/current/arg
-export MONAI_SERVICE_MODEL_O_MODEL_DIR=/absolute/models/current/model_o
+export MONAI_SERVICE_ARG_MODEL_DIR=/absolute/models/arg-onnx/1
+export MONAI_SERVICE_MODEL_O_MODEL_DIR=/absolute/models/model-o/1
 ```
 
-Each directory contains its ordinary serving files and `model-source.json`,
-written by `model_artifacts.snapshot.write_snapshot`. The manifest records the
-MLflow model name, exact version, model URI, tracking/registry URIs and every
-artifact's SHA-256. The service verifies those checksums and reports the original
-MLflow identity in its normal inference response. These directory settings take
-precedence over registry lookup for the corresponding task.
-
-Publish complete versioned directories, then atomically replace a `current`
-symlink. Each request resolves that link once and keeps the resolved directory
-through worker completion. Retain old directories while requests use them.
+Use `<registered-model-name>/<MLflow-version>` directories containing the ordinary
+serving files. The service derives the response's model name and version from
+that path. These settings take precedence over registry lookup. A symlink to the
+selected version can be used for updates.
 
 ## Containers
 
