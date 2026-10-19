@@ -35,6 +35,7 @@ class CudaPatchInference:
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
         options.add_session_config_entry("session.disable_prepacking", "1")
+        options.add_session_config_entry("session.record_ep_graph_assignment_info", "1")
         self.native_session = ort.InferenceSession(
             prepare_model_o(str(model_path), case.n_rays),
             sess_options=options,
@@ -80,3 +81,5 @@ class CudaPatchInference:
 
     def close(self) -> None:
         self.builder.close()
+        # Release ORT's arena before the next capacity group is constructed.
+        del self.binding, self.native_session, self.logits, self.builder

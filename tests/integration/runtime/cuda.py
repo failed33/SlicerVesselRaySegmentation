@@ -13,7 +13,7 @@ os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
 import numpy as np
 from cuda_ort import initialize_cuda
 from cuda_ort.host import CudaHost
-from model_o import attach_model, generate
+from model_o import attach_model, generate, generate_dense
 from model_o_inference.cuda_inputs import CudaPatchInputs
 from model_o_inference.cuda_runtime import CudaPatchInference
 from model_o_inference.inputs import PackedRayCase
@@ -36,6 +36,14 @@ def run(directory: Path) -> dict:
         resources.callback(builder.close)
         pipeline = CudaPatchInference(host, directory / "selected.onnx", case, device_volume)
         resources.callback(pipeline.close)
+        assignments = pipeline.native_session.get_provider_graph_assignment_info()
+        cuda_nodes = sum(
+            len(group.get_nodes())
+            for group in assignments
+            if group.ep_name == "CUDAExecutionProvider"
+        )
+        if not cuda_nodes:
+            raise AssertionError("ModelO graph must assign nodes to CUDAExecutionProvider")
         for spec in manifest["cases"]:
             volume[:] = np.fromfile(directory / spec["volume"], np.float32).reshape(volume.shape)
             host.upload(device_volume, volume)
@@ -72,12 +80,14 @@ def run(directory: Path) -> dict:
                     "inputs_max_absolute_error": errors,
                     "logits_max_absolute_error": float(np.abs(logits - reference).max()),
                     "mask_disagreement_voxels": 0,
+                    "foreground_voxels": int(mask.sum()),
                 }
             )
     return {
         "status": "passed",
         "backend": "cuda",
         "provider": "CUDAExecutionProvider",
+        "cuda_nodes": cuda_nodes,
         "cases": results,
         "model_sha256": manifest["model"]["sha256"],
         "reference": "independent float64 sampling and prepared CPU ONNX logits",
@@ -89,9 +99,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     args = parser.parse_args()
-    generate(args.output)
-    attach_model(args.output, args.model)
-    report = run(args.output)
+    report = {}
+    for name, generator in (("sampling", generate), ("dense", generate_dense)):
+        directory = args.output / name
+        generator(directory)
+        attach_model(directory, args.model)
+        report[name] = run(directory)
+    if not report["dense"]["cases"][0]["foreground_voxels"]:
+        raise AssertionError("Dense vessel acceptance must exercise a positive trained mask")
     (args.output / "cuda-report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
 
