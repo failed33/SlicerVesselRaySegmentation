@@ -14,21 +14,34 @@ from pathlib import Path
 def download(channel: str, output: Path) -> dict[str, str]:
     stability = {"stable": "release", "nightly": "nightly"}[channel]
     base = "https://download.slicer.org"
-    with urllib.request.urlopen(
-        f"{base}/find?os=linux&stability={stability}", timeout=60
-    ) as response:
-        metadata = json.load(response)
     output.mkdir(parents=True, exist_ok=True)
-    (output / "download.json").write_text(json.dumps(metadata, indent=2) + "\n")
     archive = output / "slicer.tar.gz"
-    digest = hashlib.sha512()
-    with urllib.request.urlopen(base + metadata["download_url"], timeout=120) as response:
-        with archive.open("wb") as destination:
-            while chunk := response.read(1024 * 1024):
-                destination.write(chunk)
-                digest.update(chunk)
-    if archive.stat().st_size != metadata["size"] or digest.hexdigest() != metadata["sha512"]:
-        raise ValueError("Slicer download size or SHA-512 verification failed")
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        with urllib.request.urlopen(
+            f"{base}/find?os=linux&stability={stability}", timeout=60
+        ) as response:
+            metadata = json.load(response)
+        (output / "download.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        digest = hashlib.sha512()
+        with urllib.request.urlopen(base + metadata["download_url"], timeout=120) as response:
+            with archive.open("wb") as destination:
+                while chunk := response.read(1024 * 1024):
+                    destination.write(chunk)
+                    digest.update(chunk)
+        expected_size = int(metadata["size"])
+        actual_size = archive.stat().st_size
+        expected_sha = str(metadata["sha512"]).lower()
+        actual_sha = digest.hexdigest()
+        if actual_size == expected_size and actual_sha == expected_sha:
+            break
+        archive.unlink(missing_ok=True)
+        if attempt == attempts:
+            raise ValueError(
+                "Slicer download size or SHA-512 verification failed "
+                f"(expected size={expected_size}, sha512={expected_sha}; "
+                f"actual size={actual_size}, sha512={actual_sha})"
+            )
     with tarfile.open(archive) as package:
         package.extractall(output / "application", filter="data")
     executables = list((output / "application").glob("*/Slicer"))
