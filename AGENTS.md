@@ -27,6 +27,18 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- The parent's `just preflight` starts nested `just` processes, so a command-line
+  `--set extension` override does not reach its package checks. Validate an
+  isolated extension checkout with its own frozen environments and explicit
+  Ruff/Pyrefly/test commands; a parent preflight still covers the active gitlink.
+
+- Scene-close acceptance needs a test-controlled inference barrier. The public
+  backend pipeline's timing assertion failed because the harness assumed a
+  300 ms delay covered scene closure and that client settlement implied server
+  completion. The fixture now holds the fourth request until the harness has
+  cleared the scene, then waits for its completion event. Retain the start/finish
+  assertions rather than increasing a delay or weakening the check.
+
 - Full inference/service typing and test environments exceed a small runner's
   8 GiB ephemeral-storage budget. Use the `linux, large` runner class for those
   two jobs. Keep dependency caches scoped by job and runner so cross-architecture
@@ -34,8 +46,9 @@ the root tool environment intentionally has no application runtime dependencies.
 
 - Private branch pipelines must run production checks before publication. The
   former publication-only job did not exercise inference, service or application
-  code. Keep all fast test jobs in the publication dependency list; GitHub
-  application/native acceptance still runs after protected-main publication.
+  code. Keep fast checks and application/backend acceptance in the publication
+  dependency list. GitHub repeats application/native acceptance on weekly,
+  public pull-request, version-tag and manual runs.
 
 - Linux ARM64 installs `numpymaxflow` from source. Service CI needs a C++
   compiler and Make even when the x86-64 job succeeds with a prebuilt wheel.

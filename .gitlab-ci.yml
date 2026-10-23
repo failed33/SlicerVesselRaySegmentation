@@ -5,6 +5,9 @@ default:
   interruptible: true
   timeout: 20 minutes
 
+include:
+  - local: .gitlab/acceptance.yml
+
 stages:
   - test
   - publish
@@ -84,13 +87,25 @@ test:service-and-application:
 
 test:publication:
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends git cmake make
+    - apt-get update && apt-get install -y --no-install-recommends git cmake make shellcheck
   script:
+    - shellcheck -x tools/ci/*.sh
     - python -m unittest discover -s tests/infrastructure -v
 
 publish:github:
   stage: publish
-  needs: ["test:publication", "lint:python", "test:inference", "test:service-and-application"]
+  needs:
+    - test:publication
+    - lint:python
+    - test:inference
+    - test:service-and-application
+    - acceptance:shaders
+    - acceptance:shared-python
+    - acceptance:packages
+    - acceptance:native
+    - acceptance:wasm
+    - acceptance:desktop
+    - acceptance:web
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git openssh-client
   resource_group: github-publication

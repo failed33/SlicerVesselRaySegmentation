@@ -34,10 +34,13 @@ class Endpoint:
     def events(self) -> list[dict]:
         return [json.loads(line) for line in self.events_file.read_text().splitlines()]
 
+    def release_inference(self) -> None:
+        (self.events_file.parent / "inference-released").touch()
+
 
 @contextmanager
 def start_endpoint(
-    work_dir: Path, *, python: Path | None = None, inference_delay: float = 0.0
+    work_dir: Path, *, python: Path | None = None, hold_request: int = 0
 ) -> Iterator[Endpoint]:
     """Start an isolated official Label process with the service dependency set."""
     root = Path(__file__).resolve().parents[3]
@@ -81,8 +84,8 @@ def start_endpoint(
                 str(ready),
                 "--events-file",
                 str(events),
-                "--inference-delay",
-                str(inference_delay),
+                "--hold-request",
+                str(hold_request),
             ],
             env=environment,
             stdout=output,
@@ -119,7 +122,7 @@ def start_endpoint(
 
 
 def create_application(
-    work_dir: Path, events_file: Path, token: str, origins: list[str], inference_delay: float = 0.0
+    work_dir: Path, events_file: Path, token: str, origins: list[str], hold_request: int = 0
 ):
     """Compose deterministic tasks through the production service contracts."""
     import shutil
@@ -152,6 +155,9 @@ def create_application(
     lock = threading.Lock()
     events_file.parent.mkdir(parents=True, exist_ok=True)
     events_file.write_text("")
+    released = work_dir / "inference-released"
+    released.unlink(missing_ok=True)
+    request_count = 0
 
     def record(event: dict) -> None:
         with lock, events_file.open("a") as stream:
@@ -172,8 +178,17 @@ def create_application(
             )
 
         def infer(self, request, artifact, workspace):
+            nonlocal request_count
+            with lock:
+                request_count += 1
+                hold_for_scene_close = request_count == hold_request
             record({"kind": "inference-start", "profile": self.profile})
-            time.sleep(inference_delay)
+            if hold_for_scene_close:
+                deadline = time.monotonic() + 45
+                while not released.is_file():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Scene-close harness did not release inference")
+                    time.sleep(0.01)
             image = sitk.ReadImage(str(request.image))
             values = sitk.GetArrayFromImage(image)
             mask = values > 0
@@ -275,14 +290,14 @@ def main() -> None:
     parser.add_argument("--ready-file", type=Path, required=True)
     parser.add_argument("--events-file", type=Path, required=True)
     parser.add_argument("--token", default=DEFAULT_TOKEN)
-    parser.add_argument("--inference-delay", type=float, default=0.0)
+    parser.add_argument("--hold-request", type=int, default=0)
     parser.add_argument(
         "--origin", action="append", default=["http://127.0.0.1:4173", "http://localhost:4173"]
     )
     args = parser.parse_args()
     args.work_dir.mkdir(parents=True, exist_ok=True)
     app = create_application(
-        args.work_dir, args.events_file, args.token, args.origin, args.inference_delay
+        args.work_dir, args.events_file, args.token, args.origin, args.hold_request
     )
     import uvicorn
 

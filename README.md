@@ -30,7 +30,7 @@ The rest is AI generated slop, as I haven't cleaned it up.
 ## Build and test
 
 [Extension CI](https://github.com/failed33/SlicerVesselRaySegmentation/actions/workflows/extension-ci.yml)
-runs on pushes to `main`, version tags, pull requests, manual dispatch and weekly
+runs on version tags, pull requests, manual dispatch and weekly
 on Sunday at 04:27 UTC. It uses standard public GitHub-hosted Ubuntu runners:
 
 | Target | Build | Tests |
@@ -109,10 +109,18 @@ Bearer tokens stay in the current widget and are not saved into scenes or settin
 
 GitLab is the authoritative development repository. Every branch and merge request
 runs Ruff, the three package-specific Pyrefly scopes, CPU inference and service
-tests, workflow transport tests, and publication/packaging tests. All four jobs must
-pass before a protected default-branch commit or version tag is pushed to GitHub.
+tests, workflow transport tests, and publication/packaging tests. Production and
+CI changes also run shader regeneration, installed numerical-wheel checks,
+backend wheel/container acceptance, native and WASM source builds, and packaged
+inference in stable Slicer, nightly Slicer and SlicerWeb. These checks always run
+on default-branch and tag pipelines, and all must pass before publication to GitHub.
 The two full package-check jobs use the `linux, large` runner class; lint and
-publication use the shared `linux` tag. Feature branches stay in GitLab. GitHub receives ordinary
+publication use the shared `linux` tag. Acceptance uses the `linux, large, amd64`
+runner class. Dependency downloads and bounded compiler caches are reusable;
+compiled runtime bundles pass between jobs as one-day pipeline artifacts.
+GitHub retains weekly, public pull-request, version-tag and manual application
+and backend coverage. Its Python quality checks also run on `main` publications.
+Feature branches stay in GitLab. GitHub receives ordinary
 Git commits with the same IDs, and published history is never force-pushed.
 
 Run the infrastructure tests with Python 3.12+, Git, CMake 3.28+ and Make installed:

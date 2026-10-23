@@ -60,7 +60,7 @@ try {
     endpointProcess = spawn(path.resolve(values["endpoint-python"]), [
       fileURLToPath(new URL("endpoint.py", import.meta.url)), "--work-dir", directory,
       "--ready-file", ready, "--events-file", path.join(directory, "events.jsonl"),
-      "--inference-delay", "0.3",
+      "--hold-request", "4",
     ], { stdio: "inherit", env: { ...process.env, ORT_DISABLE_TELEMETRY: "1",
       MONAI_LABEL_AUTH_ENABLE: "true", MONAI_LABEL_DATASTORE_AUTO_RELOAD: "false",
       MLFLOW_DISABLE_TELEMETRY: "true",
@@ -126,14 +126,19 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
   assert.equal(await page.locator('input[type="password"]').count(), 1,
     "Bearer token must be masked by the browser input");
   if (endpoint) {
-    await page.exposeFunction("_workflowRequestStarted", async () => {
+    async function waitForInference(kind) {
       for (let attempt = 0; attempt < 4500; attempt++) {
         const events = (await readFile(path.join(output, "endpoint/events.jsonl"), "utf8"))
           .trim().split("\n").filter(Boolean).map(JSON.parse);
-        if (events.filter((event) => event.kind === "inference-start").length >= 4) return;
+        if (events.filter((event) => event.kind === kind).length >= 4) return;
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      throw new Error("The final ModelO request did not enter inference");
+      throw new Error(`The final ModelO request did not reach ${kind}`);
+    }
+    await page.exposeFunction("_workflowRequestStarted", () => waitForInference("inference-start"));
+    await page.exposeFunction("_workflowReleaseRequest", async () => {
+      await writeFile(path.join(output, "endpoint/inference-released"), "");
+      await waitForInference("inference");
     });
     report.hosted_workflow = await page.evaluate(async ({ endpoint, token }) => {
       const pyodide = window.slicerWeb.pyodide;
@@ -143,7 +148,9 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
 from js import window
 async def _workflow_request_started():
     await window._workflowRequestStarted()
-json.dumps(await test_hosted_workflow(_workflow_endpoint, _workflow_token, _workflow_request_started))
+async def _workflow_release_request():
+    await window._workflowReleaseRequest()
+json.dumps(await test_hosted_workflow(_workflow_endpoint, _workflow_token, _workflow_request_started, _workflow_release_request))
 `));
     }, endpoint);
     const events = (await readFile(path.join(output, "endpoint/events.jsonl"), "utf8"))

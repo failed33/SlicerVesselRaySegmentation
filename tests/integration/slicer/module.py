@@ -139,7 +139,9 @@ def _workflow_curve(panel):
     return curve
 
 
-async def test_hosted_workflow(endpoint: str, token: str, wait_for_request) -> dict:
+async def test_hosted_workflow(
+    endpoint: str, token: str, wait_for_request, release_request
+) -> dict:
     """Exercise real native Label HTTP and the installed production widget on either host."""
     import qt
     import vtk
@@ -178,6 +180,7 @@ async def test_hosted_workflow(endpoint: str, token: str, wait_for_request) -> d
         await wait_for_request()
         closed_at = time.time()
         slicer.mrmlScene.Clear(0)
+        await release_request()
         await _settled(panel)
         assert slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLSegmentationNode") == 0
         assert panel.logic.snapshot is None

@@ -237,7 +237,7 @@ def build_javascript(source: Path, output: Path) -> None:
     env = {
         **os.environ,
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
-        "npm_config_cache": str(output / "npm-cache"),
+        "npm_config_cache": os.environ.get("npm_config_cache", str(output / "npm-cache")),
     }
     for directory in ("js", "js/common", "js/web"):
         run(["npm", "ci", "--no-audit", "--no-fund"], source / directory, output, env)

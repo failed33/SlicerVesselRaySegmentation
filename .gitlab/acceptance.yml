@@ -1,0 +1,198 @@
+# Hosted and private CI execute the same commands in tools/ci/.
+.acceptance:
+  image: ubuntu:24.04
+  stage: test
+  tags: [linux, large, amd64]
+  needs: []
+  timeout: 2 hours
+  variables:
+    UV_CACHE_DIR: $CI_PROJECT_DIR/build/cache/uv
+    npm_config_cache: $CI_PROJECT_DIR/build/cache/npm
+    CCACHE_DIR: $CI_PROJECT_DIR/build/cache/ccache
+    CCACHE_MAXSIZE: 2G
+  before_script:
+    - bash tools/ci/bootstrap.sh "$ACCEPTANCE_ENV"
+    - export PATH="/opt/ci-tools/bin:$PATH"
+  after_script:
+    - export PATH="/opt/ci-tools/bin:$PATH"
+    - uv cache prune --ci
+  cache:
+    key:
+      files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
+      prefix: acceptance-ubuntu2404-amd64-$CI_JOB_NAME_SLUG
+    paths: [build/cache/uv/]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - changes:
+        - .gitlab-ci.yml
+        - .gitlab/**/*
+        - .github/workflows/**/*
+        - CMakeLists.txt
+        - VesselRaySegmentation/**/*
+        - deployment/**/*
+        - tools/**/*
+        - tests/**/*
+        - pyproject.toml
+        - uv.lock
+        - slicerweb-extension.json
+
+acceptance:shaders:
+  extends: .acceptance
+  timeout: 10 minutes
+  variables:
+    ACCEPTANCE_ENV: shaders
+  cache:
+    key:
+      files: [tools/packaging/compile_shaders.py]
+      prefix: slang-linux-amd64
+    paths: [build/slang/]
+  script:
+    - python tools/packaging/compile_shaders.py --check
+
+acceptance:shared-python:
+  extends: .acceptance
+  timeout: 15 minutes
+  parallel:
+    matrix:
+      - PYTHON_VERSION: "3.12"
+        NUMPY_VERSION: "1.26.4"
+        SCIPY_VERSION: "1.13.1"
+      - PYTHON_VERSION: "3.14"
+        NUMPY_VERSION: "2.5.4"
+        SCIPY_VERSION: "1.18.1"
+  variables:
+    ACCEPTANCE_ENV: shared-python
+  script:
+    - bash tools/ci/shared-python.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: [build/shared-python/report.json]
+
+acceptance:packages:
+  extends: .acceptance
+  variables:
+    ACCEPTANCE_ENV: packages
+    RUNNER_SCRIPT_TIMEOUT: 100m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 10m
+    DOCKER_HOST: unix:///cache/docker.sock
+    DOCKER_TLS_CERTDIR: ""
+    VRS_CONTAINER_HOST: docker
+    NO_PROXY: localhost,127.0.0.1,docker
+    KUBERNETES_CPU_LIMIT: "1"
+    KUBERNETES_MEMORY_LIMIT: 4Gi
+    KUBERNETES_SERVICE_CPU_LIMIT: "2500m"
+    KUBERNETES_SERVICE_MEMORY_LIMIT: 7Gi
+    KUBERNETES_SERVICE_EPHEMERAL_STORAGE_LIMIT: 80Gi
+  services:
+    - name: docker:29.6.2-dind
+      alias: docker
+      entrypoint: [sh, -c]
+      command: ["rm -f /cache/docker.sock && exec dockerd-entrypoint.sh --host=unix:///cache/docker.sock --tls=false"]
+  script:
+    - bash tools/ci/packages.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    reports:
+      junit: [build/backend/monai-tests.xml, build/backend/workflow-tests.xml]
+    paths: [build/backend/*.json, build/backend/containers/, build/backend/*.xml]
+
+acceptance:native:
+  extends: .acceptance
+  variables:
+    ACCEPTANCE_ENV: native
+    RUNNER_SCRIPT_TIMEOUT: 100m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 10m
+  cache:
+    - key:
+        files: [deployment/inference/uv.lock]
+        prefix: native-python312-ubuntu2404-amd64
+      paths: [build/cache/uv/]
+    - key:
+        files: [deployment/inference/native/pins.cmake]
+        prefix: ccache-native-ubuntu2404-amd64-v1
+      paths: [build/cache/ccache/]
+      when: always
+  script:
+    - ccache --zero-stats
+    - bash tools/ci/native.sh
+  after_script:
+    - !reference [.acceptance, after_script]
+    - ccache --show-stats
+  artifacts:
+    expire_in: 1 day
+    paths: [build/desktop-runtime.tar.gz, build/backend/dist/*.whl, build/backend/native/]
+    reports:
+      junit: build/backend/inference-tests.xml
+
+acceptance:wasm:
+  extends: .acceptance
+  variables:
+    ACCEPTANCE_ENV: wasm
+    RUNNER_SCRIPT_TIMEOUT: 100m
+    RUNNER_AFTER_SCRIPT_TIMEOUT: 10m
+  cache:
+    - key:
+        files: [deployment/inference/uv.lock]
+        prefix: wasm-python312-ubuntu2404-amd64
+      paths: [build/cache/uv/]
+    - key:
+        files: [deployment/inference/native/pins.cmake, deployment/inference/wasm/toolchain.json]
+        prefix: ccache-wasm-ubuntu2404-amd64-v1
+      paths: [build/cache/ccache/, build/cache/emscripten/]
+      when: always
+    - key:
+        files: [deployment/inference/native/pins.cmake]
+        prefix: npm-wasm-node24-amd64
+      paths: [build/cache/npm/]
+  script:
+    - ccache --zero-stats
+    - bash tools/ci/wasm.sh
+  after_script:
+    - !reference [.acceptance, after_script]
+    - ccache --show-stats
+  artifacts:
+    expire_in: 1 day
+    paths: [build/wasm/dist/, build/backend/dist/*.whl]
+
+acceptance:desktop:
+  extends: .acceptance
+  timeout: 30 minutes
+  variables:
+    ACCEPTANCE_ENV: desktop
+  parallel:
+    matrix:
+      - SLICER_CHANNEL: [stable, nightly]
+  needs:
+    - job: acceptance:native
+      artifacts: true
+  script:
+    - bash tools/ci/desktop.sh "$SLICER_CHANNEL" runtime
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: [build/desktop-package/*.json, build/desktop-package/*.log, build/slicer/download.json]
+
+acceptance:web:
+  extends: .acceptance
+  timeout: 30 minutes
+  variables:
+    ACCEPTANCE_ENV: web
+  needs:
+    - job: acceptance:wasm
+      artifacts: true
+  cache:
+    - key:
+        files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
+        prefix: web-python312-ubuntu2404-amd64
+      paths: [build/cache/uv/]
+    - key: web-npm-node24-amd64-v1
+      paths: [build/cache/npm/]
+  script:
+    - bash tools/ci/web.sh runtime
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: [build/web-package/results/, build/web-runtime/wheels/build-info.json]
