@@ -27,6 +27,13 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- A nested BuildKit bridge on the Docker executor fell back to public DNS and
+  could not resolve the private CI registry, although the job's Docker login
+  worked. Keep the builder on the job-local DinD host network. Cache export is
+  optional (`ignore-error=true`); image builds and real HTTP acceptance still
+  fail normally. The manual package job can select a runner tag to check executor
+  differences without duplicating every automatic pipeline.
+
 - CI's uv cache and environment share the job filesystem. Let uv use its native
   linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
   set and added avoidable disk I/O. Kubernetes startup and cache restoration

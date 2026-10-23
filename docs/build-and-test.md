@@ -77,6 +77,11 @@ runner's existing Unix-socket Docker-in-Docker service. Its temporary bind mount
 remain under the shared project directory; `VRS_CONTAINER_HOST=docker` selects
 the service network address without changing installed-wheel HTTP acceptance.
 Both platforms invoke the same scripts under `tools/ci/`.
+The BuildKit builder shares the job-local DinD network so private registry DNS
+works on both executors. Cache export failures are nonfatal; image builds and
+HTTP acceptance remain required. The optional `acceptance:packages:manual` job
+repeats the package gate with a selected `CONTAINER_RUNNER_TAG` (default `large`)
+when checking a different executor.
 
 GitLab caches uv dependencies by lockfile and job role, and compiler results by
 platform and pinned runtime/toolchain. Native and WASM compiler caches are

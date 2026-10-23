@@ -109,6 +109,15 @@ acceptance:packages:
       junit: [build/backend/monai-tests.xml, build/backend/workflow-tests.xml]
     paths: [build/backend/*.json, build/backend/containers/, build/backend/*.xml]
 
+acceptance:packages:manual:
+  extends: acceptance:packages
+  tags: [linux, amd64, $CONTAINER_RUNNER_TAG]
+  variables:
+    CONTAINER_RUNNER_TAG: large
+  rules:
+    - when: manual
+      allow_failure: true
+
 acceptance:native:
   extends: .acceptance-build
   variables:
