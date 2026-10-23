@@ -95,17 +95,17 @@ test:publication:
 publish:github:
   stage: publish
   needs:
-    - test:publication
-    - lint:python
-    - test:inference
-    - test:service-and-application
-    - acceptance:shaders
-    - acceptance:shared-python
-    - acceptance:packages
-    - acceptance:native
-    - acceptance:wasm
-    - acceptance:desktop
-    - acceptance:web
+    - {job: test:publication, artifacts: false}
+    - {job: lint:python, artifacts: false}
+    - {job: test:inference, artifacts: false}
+    - {job: test:service-and-application, artifacts: false}
+    - {job: acceptance:shaders, artifacts: false}
+    - {job: acceptance:shared-python, artifacts: false}
+    - {job: acceptance:packages, artifacts: false}
+    - {job: acceptance:native, artifacts: false}
+    - {job: acceptance:wasm, artifacts: false}
+    - {job: acceptance:desktop, artifacts: false}
+    - {job: acceptance:web, artifacts: false}
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git openssh-client
   resource_group: github-publication

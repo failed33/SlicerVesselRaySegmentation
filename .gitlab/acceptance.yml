@@ -40,12 +40,12 @@
 .acceptance-build:
   extends: .acceptance
   needs:
-    - lint:python
-    - test:publication
-    - test:inference
-    - test:service-and-application
-    - acceptance:shaders
-    - acceptance:shared-python
+    - {job: lint:python, artifacts: false}
+    - {job: test:publication, artifacts: false}
+    - {job: test:inference, artifacts: false}
+    - {job: test:service-and-application, artifacts: false}
+    - {job: acceptance:shaders, artifacts: false}
+    - {job: acceptance:shared-python, artifacts: false}
 
 acceptance:shaders:
   extends: .acceptance
