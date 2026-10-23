@@ -37,6 +37,16 @@
         - uv.lock
         - slicerweb-extension.json
 
+.acceptance-build:
+  extends: .acceptance
+  needs:
+    - lint:python
+    - test:publication
+    - test:inference
+    - test:service-and-application
+    - acceptance:shaders
+    - acceptance:shared-python
+
 acceptance:shaders:
   extends: .acceptance
   timeout: 10 minutes
@@ -71,7 +81,7 @@ acceptance:shared-python:
     paths: [build/shared-python/report.json]
 
 acceptance:packages:
-  extends: .acceptance
+  extends: .acceptance-build
   variables:
     ACCEPTANCE_ENV: packages
     RUNNER_SCRIPT_TIMEOUT: 100m
@@ -100,7 +110,7 @@ acceptance:packages:
     paths: [build/backend/*.json, build/backend/containers/, build/backend/*.xml]
 
 acceptance:native:
-  extends: .acceptance
+  extends: .acceptance-build
   variables:
     ACCEPTANCE_ENV: native
     RUNNER_SCRIPT_TIMEOUT: 100m
@@ -128,7 +138,7 @@ acceptance:native:
       junit: build/backend/inference-tests.xml
 
 acceptance:wasm:
-  extends: .acceptance
+  extends: .acceptance-build
   variables:
     ACCEPTANCE_ENV: wasm
     RUNNER_SCRIPT_TIMEOUT: 100m

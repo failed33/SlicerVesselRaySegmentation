@@ -27,6 +27,10 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- New MR commits did not auto-cancel running jobs in an already-failed pipeline.
+  Cancel superseded failed pipelines explicitly so their large jobs release
+  runner capacity. Keep cheap checks ahead of native/WASM/container builds.
+
 - GitLab's initial MR compiler-cache upload used a `-protected` suffix even
   though only `main` is protected. Cache keys explicitly include pipeline source
   and ref protection as well as GitLab's own suffix, so merge-request writers

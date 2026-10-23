@@ -63,7 +63,8 @@ does not prevent stable or browser results from being collected.
 GitLab gates publication with the fast production checks and the acceptance jobs
 in `.gitlab/acceptance.yml`. Acceptance runs for production/CI changes in branch
 and merge-request pipelines, and always on default-branch and tag pipelines.
-The native and WASM producers run independently. Their artifacts feed two
+Cheap checks must pass before the native, WASM and container builds start.
+The native and WASM producers then run independently. Their artifacts feed two
 desktop matrix jobs and one browser job through explicit `needs` dependencies.
 Those three jobs cover the scripted application checks as well as compiled
 inference, so GitLab does not launch another copy of the basic application matrix.
