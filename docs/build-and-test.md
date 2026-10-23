@@ -76,6 +76,19 @@ key, which triggers GitHub's push workflow. Direct pull requests can also be tes
 on GitHub. Accepted source changes still belong in the authoritative GitLab
 repository. GitHub CI has no permission to publish source changes or releases.
 
+Publication is one-way from GitLab to GitHub. Make routine changes in GitLab,
+including changes to `.github/workflows/`; publication carries those workflow
+files to GitHub with the rest of the source. Extension CI also runs weekly on
+Sunday at 04:27 UTC to check upstream stable, nightly and browser runtimes.
+
+For contributions made on GitHub, fetch the contributor's branch and merge its
+commits into a branch based on GitLab `main`. Open a GitLab merge request and run
+the same checks before merging. If changes have already reached GitHub `main`,
+merge that public history into GitLab so the next publication can fast-forward.
+There is no automatic reverse synchronization. Preserve public commits rather
+than force-pushing over them. Update the private parent's gitlink separately
+after selecting the extension revision it should use.
+
 ## Run locally
 
 ### Python quality
