@@ -27,6 +27,11 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Private branch pipelines must run production checks before publication. The
+  former publication-only job did not exercise inference, service or application
+  code. Keep all fast test jobs in the publication dependency list; GitHub
+  application/native acceptance still runs after protected-main publication.
+
 - ModelO gathers origins around the continuous selected origin, but truncates that
   origin for the integer output crop. Half-open boundary tests must cover both
   coordinate conventions. The planner's two explicit margin keywords control

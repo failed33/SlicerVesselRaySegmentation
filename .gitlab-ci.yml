@@ -1,7 +1,9 @@
-image: python:3.12-alpine
+image: python:3.12-slim-trixie
 
 default:
-  tags: [k8s-small-arm64]
+  tags: [linux]
+  interruptible: true
+  timeout: 20 minutes
 
 stages:
   - test
@@ -10,7 +12,12 @@ stages:
 variables:
   GIT_DEPTH: "0"
   GIT_SUBMODULE_STRATEGY: none
+  GIT_LFS_SKIP_SMUDGE: "1"
   GITHUB_REPOSITORY: failed33/SlicerVesselRaySegmentation
+  UV_CACHE_DIR: $CI_PROJECT_DIR/.uv-cache
+  ORT_DISABLE_TELEMETRY: "1"
+  MLFLOW_DISABLE_TELEMETRY: "true"
+  MLFLOW_DISABLE_AGENT_HINT: "1"
 
 workflow:
   rules:
@@ -20,17 +27,68 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_PIPELINE_SOURCE == "web"
 
-before_script:
-  - apk add --no-cache git openssh-client cmake make
+.python-job:
+  before_script:
+    - python -m pip install uv==0.12.23
+  cache:
+    key:
+      files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
+      prefix: python312
+    paths: [.uv-cache/]
+
+lint:python:
+  extends: .python-job
+  timeout: 5 minutes
+  script:
+    - uv sync --frozen
+    - uv run --frozen ruff check .
+    - uv run --frozen ruff format --check .
+
+test:inference:
+  extends: .python-job
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git cmake make g++ ninja-build libgomp1
+    - python -m pip install uv==0.12.23
+  script:
+    - uv sync --frozen
+    - UV_PROJECT_ENVIRONMENT="$CI_PROJECT_DIR/deployment/inference/.venv-typecheck" uv sync --project deployment/inference --python 3.12 --frozen --all-extras --group native --group test
+    - .venv/bin/pyrefly check --config deployment/inference/pyproject.toml
+    - deployment/inference/.venv-typecheck/bin/python -m pytest -q deployment/inference/tests --junitxml=build/inference-tests.xml
+  artifacts:
+    when: always
+    reports:
+      junit: build/inference-tests.xml
+
+test:service-and-application:
+  extends: .python-job
+  variables:
+    VRS_TEST_ENDPOINT_PYTHON: $CI_PROJECT_DIR/deployment/monai/.venv-typecheck/bin/python
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends libgomp1
+    - python -m pip install uv==0.12.23
+  script:
+    - uv sync --frozen
+    - UV_PROJECT_ENVIRONMENT="$CI_PROJECT_DIR/deployment/monai/.venv-typecheck" uv sync --project deployment/monai --python 3.12 --frozen --all-extras --group dev
+    - .venv/bin/pyrefly check --config pyproject.toml
+    - .venv/bin/pyrefly check --config deployment/monai/pyproject.toml
+    - cd deployment/monai && .venv-typecheck/bin/python -m pytest -q tests --junitxml=../../build/monai-tests.xml
+    - cd ../.. && deployment/monai/.venv-typecheck/bin/python -m pytest -q VesselRaySegmentation/Testing/Python --junitxml=build/workflow-tests.xml
+  artifacts:
+    when: always
+    reports:
+      junit: [build/monai-tests.xml, build/workflow-tests.xml]
 
 test:publication:
-  stage: test
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git cmake make
   script:
     - python -m unittest discover -s tests/infrastructure -v
 
 publish:github:
   stage: publish
-  needs: ["test:publication"]
+  needs: ["test:publication", "lint:python", "test:inference", "test:service-and-application"]
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git openssh-client
   resource_group: github-publication
   interruptible: false
   environment:
