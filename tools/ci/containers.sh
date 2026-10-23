@@ -2,6 +2,10 @@
 set -euo pipefail
 # shellcheck source=tools/ci/common.sh
 source "$(dirname "$0")/common.sh"
+user_args=()
+if [[ "$(id -u)" != 0 ]]; then
+  user_args=(--build-arg "MONAI_UID=$(id -u)" --build-arg "MONAI_GID=$(id -g)")
+fi
 if [[ -n "${CI_REGISTRY:-}" ]]; then
   printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   mkdir -p build/backend
@@ -24,6 +28,6 @@ for target in arg label_arg; do
       --cache-to "type=registry,ref=$cache_ref,mode=max,compression=zstd")
   fi
   docker buildx build --load -f deployment/monai/Dockerfile.workers --target "$target" \
-    --build-arg "MONAI_UID=$(id -u)" --build-arg "MONAI_GID=$(id -g)" \
+    "${user_args[@]}" \
     "${cache[@]}" -t "$image" .
 done

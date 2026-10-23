@@ -101,6 +101,7 @@ if(DAWN_BUILD_FROM_SOURCE)
                "-DTINT_BUILD_CMD_TOOLS=OFF"
                "-DTINT_BUILD_TESTS=OFF"
     BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target webgpu_dawn
+    USES_TERMINAL_BUILD TRUE
     BUILD_BYPRODUCTS "${_dawn_library}"
     INSTALL_COMMAND ""
     DEPENDS dawn_source)
@@ -207,6 +208,7 @@ ExternalProject_Add(
     "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
   BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target
                 onnxruntime_providers_webgpu
+  USES_TERMINAL_BUILD TRUE
   BUILD_BYPRODUCTS "${_provider_library}"
   INSTALL_COMMAND ""
   DEPENDS ${_dawn_dependencies})

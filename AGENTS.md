@@ -27,6 +27,16 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Ninja buffers a nested ExternalProject build's output until that complete
+  command finishes. Native compilation can therefore look idle for tens of
+  minutes. Keep `USES_TERMINAL_BUILD` on the Dawn and ORT sub-builds so CI streams
+  their progress instead of hiding the expensive phase behind one outer step.
+
+- GitLab's root build user cannot become the image's named `monai` account:
+  UID/GID 0 already exist. Root-run CI keeps the image's normal non-root account
+  defaults, while the acceptance harness selects the caller identity at runtime
+  for shared test files. Non-root builders still pass their own UID/GID.
+
 - New MR commits did not auto-cancel running jobs in an already-failed pipeline.
   Cancel superseded failed pipelines explicitly so their large jobs release
   runner capacity. Keep cheap checks ahead of native/WASM/container builds.
