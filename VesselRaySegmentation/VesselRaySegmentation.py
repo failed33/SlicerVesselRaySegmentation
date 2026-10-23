@@ -68,9 +68,7 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         ) * [0.5, 1.0, 2.0]
         matrix[:3, 3] = [10.0, -20.0, 30.0]
         snapshot = VolumeSnapshot.capture(array, matrix, ("fixture", "CT fixture"))
-        request = InferenceRequest(
-            snapshot, ConnectionSettings(), "arg_fixture", {}, "image"
-        )
+        request = InferenceRequest(snapshot, ConnectionSettings(), "arg_fixture", {}, "image")
         mask = np.zeros(array.shape, dtype=np.uint8)
         mask[1:4, 1:4, 1:4] = 1
         mask[6, 7, 8] = 1
@@ -83,23 +81,15 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         reference = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode")
         slicer.util.updateVolumeFromArray(reference, result.request.snapshot.array)
         matrix = vtk.vtkMatrix4x4()
-        slicer.util.updateVTKMatrixFromArray(
-            matrix, result.request.snapshot.geometry.ijk_to_ras()
-        )
+        slicer.util.updateVTKMatrixFromArray(matrix, result.request.snapshot.geometry.ijk_to_ras())
         reference.SetIJKToRASMatrix(matrix)
-        cleaned, summary = VesselRaySegmentationLogic.prepare_cleanup(
-            original, segment_id, 2.0, 0
-        )
+        cleaned, summary = VesselRaySegmentationLogic.prepare_cleanup(original, segment_id, 2.0, 0)
         self.assertEqual(summary["source_components"], 2)
         self.assertEqual(summary["selected_components"], 1)
         self.assertEqual(summary["selected_volume_mm3"], 27.0)
-        original_array = slicer.util.arrayFromSegmentBinaryLabelmap(
-            original, segment_id, reference
-        )
+        original_array = slicer.util.arrayFromSegmentBinaryLabelmap(original, segment_id, reference)
         cleaned_id = cleaned.GetSegmentation().GetNthSegmentID(0)
-        cleaned_array = slicer.util.arrayFromSegmentBinaryLabelmap(
-            cleaned, cleaned_id, reference
-        )
+        cleaned_array = slicer.util.arrayFromSegmentBinaryLabelmap(cleaned, cleaned_id, reference)
         np.testing.assert_array_equal(original_array, result.mask)
         self.assertEqual(int(cleaned_array.sum()), 27)
         self.assertNotEqual(original.GetID(), cleaned.GetID())
@@ -124,20 +114,14 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
             for suffix in (".nrrd", ".nii.gz"):
                 path = Path(temporary) / ("mask" + suffix)
                 snapshot.write_image(path)
-                np.testing.assert_array_equal(
-                    result.request.snapshot.read_mask(path), result.mask
-                )
+                np.testing.assert_array_equal(result.request.snapshot.read_mask(path), result.mask)
             shifted = np.array(snapshot.geometry.ijk_to_ras(), copy=True)
             shifted[0, 3] += 1
-            wrong = VolumeSnapshot.capture(
-                result.mask, shifted, ("wrong", "wrong geometry")
-            )
+            wrong = VolumeSnapshot.capture(result.mask, shifted, ("wrong", "wrong geometry"))
             wrong.write_image(path)
             with self.assertRaisesRegex(ValueError, "physical geometry"):
                 result.request.snapshot.read_mask(path)
-        volume = slicer.mrmlScene.AddNewNodeByClass(
-            "vtkMRMLScalarVolumeNode", "Editable CT"
-        )
+        volume = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode", "Editable CT")
         slicer.util.updateVolumeFromArray(volume, np.zeros((3, 4, 5), np.int16))
         captured = capture_volume(volume)
         self.assertTrue(source_is_unchanged(captured))
@@ -156,9 +140,7 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         matrix.SetElement(0, 3, 10)
         transform.SetMatrixTransformToParent(matrix)
         curve.SetAndObserveTransformNodeID(transform.GetID())
-        hierarchy = slicer.vtkMRMLSubjectHierarchyNode.GetSubjectHierarchyNode(
-            slicer.mrmlScene
-        )
+        hierarchy = slicer.vtkMRMLSubjectHierarchyNode.GetSubjectHierarchyNode(slicer.mrmlScene)
         root_id = hierarchy.GetItemByDataNode(root)
         hierarchy.SetItemParent(hierarchy.GetItemByDataNode(curve), root_id)
         polylines = collect_polylines(root_id, np.eye(4))
@@ -181,13 +163,9 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
 
     def test_widget_has_production_workflow(self) -> None:
         module = slicer.app.moduleManager().module("VesselRaySegmentation")
-        self.assertIsNotNone(
-            module, "The installed production module must be discovered"
-        )
+        self.assertIsNotNone(module, "The installed production module must be discovered")
         representation = module.widgetRepresentation()
-        widget = (
-            representation.self() if hasattr(representation, "self") else representation
-        )
+        widget = representation.self() if hasattr(representation, "self") else representation
         self.assertIsNone(getattr(module, "_setupError", None))
         self.assertIsInstance(widget.logic, VesselRaySegmentationLogic)
         panel = widget.workflow
@@ -209,9 +187,7 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         from VesselRaySegmentationLib.scene import open_segment_editor
 
         segmentation, _result = self._prediction()
-        selected = segmentation.GetSegmentation().AddEmptySegment(
-            "edited", "Selected vessel"
-        )
+        selected = segmentation.GetSegmentation().AddEmptySegment("edited", "Selected vessel")
         open_segment_editor(segmentation, None, selected)
         if sys.platform == "emscripten":
             from slicerweb import segment_editor
@@ -219,8 +195,6 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
             actual = segment_editor.editor().logic.GetCurrentSegmentID()
         else:
             actual = (
-                slicer.modules.segmenteditor.widgetRepresentation()
-                .self()
-                .editor.currentSegmentID()
+                slicer.modules.segmenteditor.widgetRepresentation().self().editor.currentSegmentID()
             )
         self.assertEqual(actual, selected)
