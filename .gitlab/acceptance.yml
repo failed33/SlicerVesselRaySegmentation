@@ -113,6 +113,7 @@ acceptance:native:
   extends: .acceptance-build
   variables:
     ACCEPTANCE_ENV: native
+    CMAKE_BUILD_PARALLEL_LEVEL: "3"
     RUNNER_SCRIPT_TIMEOUT: 100m
     RUNNER_AFTER_SCRIPT_TIMEOUT: 10m
   cache:
@@ -141,6 +142,7 @@ acceptance:wasm:
   extends: .acceptance-build
   variables:
     ACCEPTANCE_ENV: wasm
+    CMAKE_BUILD_PARALLEL_LEVEL: "3"
     RUNNER_SCRIPT_TIMEOUT: 100m
     RUNNER_AFTER_SCRIPT_TIMEOUT: 10m
   cache:

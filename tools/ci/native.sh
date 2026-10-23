@@ -10,7 +10,7 @@ deployment/inference/.venv/bin/python -m pytest -q deployment/inference/tests --
 cmake -S deployment/inference/native -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DPython3_EXECUTABLE="$PWD/deployment/inference/.venv/bin/python" -DCMAKE_INSTALL_PREFIX="$PWD/build/native/assets" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build/native --parallel 2
+cmake --build build/native --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
 cmake --install build/native
 
 
