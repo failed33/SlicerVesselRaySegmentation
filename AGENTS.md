@@ -36,6 +36,8 @@ the root tool environment intentionally has no application runtime dependencies.
   Runner tags are fixed at pipeline creation: set `CONTAINER_RUNNER_TAG` when
   creating a web/API pipeline. A variable supplied when playing a manual job
   changed its script environment but did not reselect the runner.
+  Suppress duplicate branch pushes only; an open MR must not suppress explicit
+  web/API pipeline requests.
 
 - CI's uv cache and environment share the job filesystem. Let uv use its native
   linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
