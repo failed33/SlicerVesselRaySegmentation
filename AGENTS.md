@@ -27,6 +27,11 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Full inference/service typing and test environments exceed a small runner's
+  8 GiB ephemeral-storage budget. Use the `linux, large` runner class for those
+  two jobs. Keep dependency caches scoped by job and runner so cross-architecture
+  wheels and unrelated environments do not fill a small job's workspace.
+
 - Private branch pipelines must run production checks before publication. The
   former publication-only job did not exercise inference, service or application
   code. Keep all fast test jobs in the publication dependency list; GitHub

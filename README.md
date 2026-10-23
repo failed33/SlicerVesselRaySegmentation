@@ -110,7 +110,9 @@ Bearer tokens stay in the current widget and are not saved into scenes or settin
 GitLab is the authoritative development repository. Every branch and merge request
 runs Ruff, the three package-specific Pyrefly scopes, CPU inference and service
 tests, workflow transport tests, and publication/packaging tests. All four jobs must
-pass before a protected default-branch commit or version tag is pushed to GitHub. Feature branches stay in GitLab. GitHub receives ordinary
+pass before a protected default-branch commit or version tag is pushed to GitHub.
+The two full package-check jobs use the `linux, large` runner class; lint and
+publication use the shared `linux` tag. Feature branches stay in GitLab. GitHub receives ordinary
 Git commits with the same IDs, and published history is never force-pushed.
 
 Run the infrastructure tests with Python 3.12+, Git, CMake 3.28+ and Make installed:
