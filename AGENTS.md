@@ -27,6 +27,11 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Shader regeneration and numerical wheels do not need a large runner. Their
+  former large-only tags left cheap prerequisites queued behind cold C++ builds.
+  Keep those checks in the general amd64 pool; inference/service typing and
+  application/backend acceptance still need the large memory/storage budget.
+
 - A nested BuildKit bridge on the Docker executor fell back to public DNS and
   could not resolve the private CI registry, although the job's Docker login
   worked. Keep the builder on the job-local DinD host network. Cache export is

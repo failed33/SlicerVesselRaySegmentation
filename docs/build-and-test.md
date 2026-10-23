@@ -70,8 +70,10 @@ Those three jobs cover the scripted application checks as well as compiled
 inference, so GitLab does not launch another copy of the basic application matrix.
 All acceptance jobs are required by `publish:github`.
 
-The jobs use Ubuntu 24.04 on `linux, large, amd64` runners, with three
-compiler workers and a two-hour build limit. GitHub retains two compiler workers.
+The jobs use Ubuntu 24.04. Shader and numerical-wheel checks use the general
+`linux, amd64` pool; memory-intensive jobs use `linux, large, amd64` runners.
+Native/WASM builds use three compiler workers and a two-hour build limit.
+GitHub retains two compiler workers.
 Container acceptance uses the
 runner's existing Unix-socket Docker-in-Docker service. Its temporary bind mounts
 remain under the shared project directory; `VRS_CONTAINER_HOST=docker` selects

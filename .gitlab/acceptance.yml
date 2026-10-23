@@ -49,6 +49,7 @@
 
 acceptance:shaders:
   extends: .acceptance
+  tags: [linux, amd64]
   timeout: 20 minutes
   variables:
     ACCEPTANCE_ENV: shaders
@@ -62,6 +63,7 @@ acceptance:shaders:
 
 acceptance:shared-python:
   extends: .acceptance
+  tags: [linux, amd64]
   timeout: 20 minutes
   parallel:
     matrix:
