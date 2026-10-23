@@ -111,6 +111,7 @@ acceptance:packages:
 
 acceptance:packages:manual:
   extends: acceptance:packages
+  needs: []
   tags: [linux, amd64, $CONTAINER_RUNNER_TAG]
   variables:
     CONTAINER_RUNNER_TAG: large
