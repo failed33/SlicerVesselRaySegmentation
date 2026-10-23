@@ -97,6 +97,8 @@ def service_environment(root: Path, mode: str, container: bool) -> dict[str, str
 
 @contextmanager
 def running_service(root: Path, mode: str, server_image: str | None):
+    host = os.environ.get("VRS_CONTAINER_HOST", "127.0.0.1") if server_image else "127.0.0.1"
+    publish_host = "127.0.0.1" if host == "127.0.0.1" else "0.0.0.0"
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -126,7 +128,7 @@ def running_service(root: Path, mode: str, server_image: str | None):
             "--volume",
             f"{root}:{root}",
             "--publish",
-            f"127.0.0.1:{port}:8000",
+            f"{publish_host}:{port}:8000",
         ]
         for key, value in settings.items():
             command.extend(["--env", f"{key}={value}"])
@@ -137,7 +139,7 @@ def running_service(root: Path, mode: str, server_image: str | None):
             command, cwd=root, env={**environment, **settings}, stdout=log, stderr=log
         )
         try:
-            with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=60) as client:
+            with httpx.Client(base_url=f"http://{host}:{port}", timeout=60) as client:
                 deadline = time.monotonic() + 90
                 while True:
                     assert process.poll() is None, "Server exited during startup"

@@ -101,6 +101,8 @@ def test_native_build_stages(generator: str, tmp_path: Path, native_inputs: list
             "-G",
             generator,
             f"-DPython3_EXECUTABLE={sys.executable}",
+            "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             *native_inputs,
         ],
         check=True,
@@ -130,6 +132,8 @@ def test_native_build_stages(generator: str, tmp_path: Path, native_inputs: list
     assert "ort_source" not in plan
     assert "verify_headers" in plan
     build_graph = "\n".join(path.read_text() for path in tmp_path.rglob("*.ninja"))
+    assert "-DCMAKE_C_COMPILER_LAUNCHER=ccache" in build_graph
+    assert "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" in build_graph
     state_file = tmp_path / "external/tmp/ort_provider/native-ort-patches.sha256"
     assert f"-DPATCH_STATE_FILE={state_file}" in build_graph
     assert "--compile-no-warning-as-error" in build_graph

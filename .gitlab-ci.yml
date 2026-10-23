@@ -5,6 +5,9 @@ default:
   interruptible: true
   timeout: 20 minutes
 
+include:
+  - local: .gitlab/acceptance.yml
+
 stages:
   - test
   - publish
@@ -15,6 +18,10 @@ variables:
   GIT_LFS_SKIP_SMUDGE: "1"
   GITHUB_REPOSITORY: failed33/SlicerVesselRaySegmentation
   UV_CACHE_DIR: $CI_PROJECT_DIR/.uv-cache
+  FF_USE_FASTZIP: "true"
+  CACHE_COMPRESSION_LEVEL: fastest
+  ARTIFACT_COMPRESSION_LEVEL: fastest
+  TRANSFER_METER_FREQUENCY: 10s
   ORT_DISABLE_TELEMETRY: "1"
   MLFLOW_DISABLE_TELEMETRY: "true"
   MLFLOW_DISABLE_AGENT_HINT: "1"
@@ -35,7 +42,7 @@ workflow:
   cache:
     key:
       files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
-      prefix: python312-$CI_JOB_NAME-$CI_RUNNER_ID
+      prefix: python312-$CI_JOB_NAME-$CI_RUNNER_ID-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
     paths: [.uv-cache/]
 
 lint:python:
@@ -84,13 +91,25 @@ test:service-and-application:
 
 test:publication:
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends git cmake make
+    - apt-get update && apt-get install -y --no-install-recommends git cmake make shellcheck
   script:
+    - shellcheck -x tools/ci/*.sh
     - python -m unittest discover -s tests/infrastructure -v
 
 publish:github:
   stage: publish
-  needs: ["test:publication", "lint:python", "test:inference", "test:service-and-application"]
+  needs:
+    - {job: test:publication, artifacts: false}
+    - {job: lint:python, artifacts: false}
+    - {job: test:inference, artifacts: false}
+    - {job: test:service-and-application, artifacts: false}
+    - {job: acceptance:shaders, artifacts: false}
+    - {job: acceptance:shared-python, artifacts: false}
+    - {job: acceptance:packages, artifacts: false}
+    - {job: acceptance:native, artifacts: false}
+    - {job: acceptance:wasm, artifacts: false}
+    - {job: acceptance:desktop, artifacts: false}
+    - {job: acceptance:web, artifacts: false}
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git openssh-client
   resource_group: github-publication

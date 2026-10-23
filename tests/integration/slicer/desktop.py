@@ -21,18 +21,27 @@ try:
         from endpoint import start_endpoint
 
         with start_endpoint(
-            report.parent / "endpoint", python=Path(endpoint_python), inference_delay=0.3
+            report.parent / "endpoint", python=Path(endpoint_python), hold_request=4
         ) as endpoint:
 
-            async def wait_for_request():
+            async def wait_for_event(kind):
                 deadline = asyncio.get_running_loop().time() + 45
-                while sum(event["kind"] == "inference-start" for event in endpoint.events()) < 4:
+                while sum(event["kind"] == kind for event in endpoint.events()) < 4:
                     if asyncio.get_running_loop().time() > deadline:
                         raise TimeoutError("The final ModelO request did not enter inference")
                     await asyncio.sleep(0.01)
 
+            async def wait_for_request():
+                await wait_for_event("inference-start")
+
+            async def release_request():
+                endpoint.release_inference()
+                await wait_for_event("inference")
+
             result["hosted_workflow"] = asyncio.run(
-                test_hosted_workflow(endpoint.endpoint, endpoint.token, wait_for_request)
+                test_hosted_workflow(
+                    endpoint.endpoint, endpoint.token, wait_for_request, release_request
+                )
             )
             events = endpoint.events()
             uploads = [event for event in events if event.get("method") == "PUT"]

@@ -1,25 +1,20 @@
 name: Extension CI
-
-on:
+'on':
   push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-  workflow_dispatch:
+    tags:
+      - v*
+  pull_request: null
+  workflow_dispatch: null
   schedule:
-    - cron: "27 4 * * 0"
-
+    - cron: 27 4 * * 0
 permissions:
   contents: read
-
 defaults:
   run:
     shell: bash
-
 concurrency:
   group: extension-ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   desktop:
     name: Desktop Linux / ${{ matrix.channel }}
@@ -28,39 +23,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        channel: [stable, nightly]
+        channel:
+          - stable
+          - nightly
     env:
-      QTWEBENGINE_DISABLE_SANDBOX: "1"
-      LIBGL_ALWAYS_SOFTWARE: "1"
+      QTWEBENGINE_DISABLE_SANDBOX: '1'
+      LIBGL_ALWAYS_SOFTWARE: '1'
       PACKAGE_ROOT: ${{ github.workspace }}/build/desktop-package/unpacked
       TEST_REPORT: ${{ github.workspace }}/build/desktop-package/desktop.json
+      UV_CACHE_DIR: ${{ github.workspace }}/build/cache/uv
+      CCACHE_MAXSIZE: 1G
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: "3.12"
+          python-version: '3.12'
+      - name: Install pinned uv
+        run: python -m pip install uv==0.12.23
+      - name: Restore dependency and compiler caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/cache/uv
+          key: acceptance-desktop-ubuntu2404-${{ matrix.channel }}-${{ hashFiles('deployment/inference/uv.lock', 'deployment/monai/uv.lock', 'deployment/inference/native/pins.cmake',
+            'deployment/inference/wasm/toolchain.json') }}-${{ github.sha }}
+          restore-keys: acceptance-desktop-ubuntu2404-${{ matrix.channel }}-${{ hashFiles('deployment/inference/uv.lock', 'deployment/monai/uv.lock', 'deployment/inference/native/pins.cmake',
+            'deployment/inference/wasm/toolchain.json') }}-
       - name: Install Slicer runtime libraries
         run: |
           sudo apt-get update
           # Slicer's documented Ubuntu 24.04 prerequisites, plus Xvfb and software GL.
           sudo apt-get install -y xvfb libglu1-mesa libopengl0 libpulse-mainloop-glib0 \
             libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0
-      - name: Download current ${{ matrix.channel }} Slicer and verify SHA-512
-        id: slicer
-        run: python tools/runtimes/download_slicer.py "${{ matrix.channel }}" --output build/slicer
-      - name: Test publication and scripted packaging
-        run: python -m unittest discover -s tests/infrastructure -v
-      - name: Build the scripted extension package
-        run: python tools/packaging/build_scripted.py --slicer-version "${{ steps.slicer.outputs.slicer_version }}" --output build/desktop-package
-      - name: Test installed package in real Slicer
-        run: |
-          xvfb-run -a "${{ steps.slicer.outputs.slicer_executable }}" \
-            --no-splash --no-main-window --testing \
-            --additional-module-paths "$PACKAGE_ROOT/lib/Slicer-${{ steps.slicer.outputs.slicer_version }}/qt-scripted-modules" \
-            --python-script "$GITHUB_WORKSPACE/tests/integration/slicer/desktop.py" 2>&1 | tee build/desktop-package/slicer.log
+      - name: Run shared acceptance commands
+        run: bash tools/ci/desktop.sh "${{ matrix.channel }}"
+      - name: Prune downloaded wheels before saving cache
+        if: always()
+        run: uv cache prune --ci
       - name: Keep the package, test report and download provenance
         if: always()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
           name: desktop-linux-${{ matrix.channel }}
           retention-days: 7
@@ -69,7 +70,6 @@ jobs:
             build/desktop-package/*.json
             build/desktop-package/*.log
             build/slicer/download.json
-
   slicerweb:
     name: SlicerWeb / published runtime
     runs-on: ubuntu-24.04
@@ -77,33 +77,36 @@ jobs:
     env:
       SLICERWEB_WHEELS: ${{ github.workspace }}/build/web-runtime/wheels
       SLICERWEB_EXTENSIONS: ${{ github.workspace }}/build/web-package/wheels
+      UV_CACHE_DIR: ${{ github.workspace }}/build/cache/uv
+      CCACHE_MAXSIZE: 1G
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+          python-version: '3.12'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
-          node-version: "22"
-      - name: Download published runtime and its matching SlicerWeb source
-        id: web
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python tools/runtimes/prepare_slicerweb.py --output build/web-runtime
-      - name: Build the scripted package and SlicerWeb wheel
-        run: |
-          python tools/packaging/build_scripted.py --slicer-version "${{ steps.web.outputs.slicer_version }}" --output build/web-package
-          python tools/packaging/build_slicerweb.py --source "${{ steps.web.outputs.source }}" --slicer-version "${{ steps.web.outputs.slicer_version }}" --build build/web-package
-      - name: Build matching browser application
-        working-directory: ${{ steps.web.outputs.source }}/web
-        run: |
-          npm ci
-          npm run build:app
-      - name: Install wheel and test module in headless Chrome
-        run: node tests/integration/slicer/slicerweb.mjs "${{ steps.web.outputs.source }}" build/web-package
+          node-version: '22'
+      - name: Install pinned uv
+        run: python -m pip install uv==0.12.23
+      - name: Restore dependency and compiler caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |-
+            build/cache/uv
+            build/cache/npm
+          key: acceptance-slicerweb-ubuntu2404-${{ hashFiles('deployment/inference/uv.lock', 'deployment/monai/uv.lock', 'deployment/inference/native/pins.cmake', 'deployment/inference/wasm/toolchain.json')
+            }}-${{ github.sha }}
+          restore-keys: acceptance-slicerweb-ubuntu2404-${{ hashFiles('deployment/inference/uv.lock', 'deployment/monai/uv.lock', 'deployment/inference/native/pins.cmake', 'deployment/inference/wasm/toolchain.json')
+            }}-
+      - name: Run shared acceptance commands
+        run: bash tools/ci/web.sh
+      - name: Prune downloaded wheels before saving cache
+        if: always()
+        run: uv cache prune --ci
       - name: Keep the wheel, browser report and runtime provenance
         if: always()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
           name: slicerweb
           retention-days: 7
