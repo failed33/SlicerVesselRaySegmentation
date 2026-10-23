@@ -27,6 +27,11 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Full inference/service typing and test environments exceed a small runner's
+  8 GiB ephemeral-storage budget. Use the `linux, large` runner class for those
+  two jobs. Keep dependency caches scoped by job and runner so cross-architecture
+  wheels and unrelated environments do not fill a small job's workspace.
+
 - ORT's automatic CPU thread count can follow the full node rather than a Slurm
   allocation's cpuset. On Grete this emitted affinity errors and stalled the
   CPU reference check. Keep explicit thread counts in CUDA host sessions and
