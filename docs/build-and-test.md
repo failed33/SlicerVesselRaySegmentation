@@ -60,19 +60,66 @@ does not prevent stable or browser results from being collected.
 
 ## Free runner setup
 
+GitLab gates publication with the fast production checks and the acceptance jobs
+in `.gitlab/acceptance.yml`. Acceptance runs for production/CI changes in branch
+and merge-request pipelines, and always on default-branch and tag pipelines.
+Cheap checks must pass before the native, WASM and container builds start.
+The native and WASM producers then run independently. Their artifacts feed two
+desktop matrix jobs and one browser job through explicit `needs` dependencies.
+Those three jobs cover the scripted application checks as well as compiled
+inference, so GitLab does not launch another copy of the basic application matrix.
+All acceptance jobs are required by `publish:github`.
+
+The jobs use Ubuntu 24.04 on `linux, large, amd64` runners, with three
+compiler workers and a two-hour build limit. GitHub retains two compiler workers.
+Container acceptance uses the
+runner's existing Unix-socket Docker-in-Docker service. Its temporary bind mounts
+remain under the shared project directory; `VRS_CONTAINER_HOST=docker` selects
+the service network address without changing installed-wheel HTTP acceptance.
+Both platforms invoke the same scripts under `tools/ci/`.
+
+GitLab caches uv dependencies by lockfile and job role, and compiler results by
+platform and pinned runtime/toolchain. Native and WASM compiler caches are
+separate and bounded to 2 GiB each. Emscripten system libraries and npm downloads
+are cached alongside the corresponding build. No virtual environment, application
+download, CMake build tree or test result is restored from cache. Builds and tests
+still run after every restore. GitLab retains its protected/unprotected cache
+separation, with pipeline source and ref-protection state also present in keys.
+Python caches are pruned with `uv cache prune --ci` before upload.
+The cache and environment share the job filesystem so uv can link dependencies
+instead of copying them. GitLab uses Fastzip's fastest archive mode and reports
+transfer progress. Short acceptance jobs allow twenty minutes, including
+Kubernetes startup and cache restoration.
+
+BuildKit exports multi-stage container layers to the project's existing registry,
+using branch-specific `ci-cache-*` tags and the default branch as a read fallback.
+The extension project's daily registry cleanup removes matching tags older than
+seven days, keeps the newest tag per image and preserves `ci-cache-main`.
+Regular image tags are outside that cleanup policy.
+Authentication uses the native CI registry credentials. The private/public trust
+bundle is passed to the isolated BuildKit builder when the runner supplies one.
+Final acceptance images stay in the job-local daemon. Compiled native/WASM
+bundles are pipeline artifacts, retained for one day; reports remain for one week.
+
+Heavy GitHub workflows run on public pull requests, version tags, manual dispatch
+and once each Sunday. Extension CI starts at 04:27 UTC and Backend CI at 04:57 UTC.
+Main publication pushes run the cheap Python quality workflow. GitHub restores
+dependency caches and compiler caches bounded to 1 GiB per producer; it does not
+need access to the private GitLab runners or registry.
+
 The public repository uses `ubuntu-24.04` standard runners, read-only workflow
 permissions and no repository secrets. GitHub provides standard hosted runner
 minutes free for public repositories. Storage has a separate allowance, so retain
 extension artifacts and reports for seven days. The private desktop runtime is
 retained for one day and passed between jobs once, rather than uploaded again in
 each application archive. These jobs do not
-upload Slicer applications, the web application bundle, upstream runtime wheels
-or caches. No larger runners, private GitLab runner access or hosted GPU is needed
+upload Slicer applications, the web application bundle or upstream runtime wheels
+as artifacts. No larger runners, private GitLab runner access or hosted GPU is needed
 for these tests. Chrome and native Vulkan can use explicitly reported software
 GPU adapters.
 
 The GitLab publication job pushes ordinary commits using the repository deploy
-key, which triggers GitHub's push workflow. Direct pull requests can also be tested
+key, which triggers GitHub's Python quality workflow for matching paths. Direct pull requests can also be tested
 on GitHub. Accepted source changes still belong in the authoritative GitLab
 repository. GitHub CI has no permission to publish source changes or releases.
 
@@ -140,7 +187,7 @@ xvfb-run -a /path/to/Slicer --no-splash --no-main-window --testing \
   --python-script "$PWD/tests/integration/slicer/desktop.py"
 ```
 
-Browser tests need Python 3.12+, CMake, Make, Git, GitHub CLI, Node 22+ and Chrome:
+Browser tests need Python 3.12+, CMake, Make, Git, Node 22+ and Chrome:
 
 ```sh
 python3 tools/runtimes/prepare_slicerweb.py --output build/web-runtime

@@ -27,6 +27,49 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- CI's uv cache and environment share the job filesystem. Let uv use its native
+  linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
+  set and added avoidable disk I/O. Kubernetes startup and cache restoration
+  also count toward the job timeout: a six-minute startup exhausted the old
+  ten-minute shader limit during package setup. Keep setup margin and fast
+  archive settings, and measure restoration as well as compiler cache hits.
+
+- Ninja buffers a nested ExternalProject build's output until that complete
+  command finishes. Native compilation can therefore look idle for tens of
+  minutes. Keep `USES_TERMINAL_BUILD` on the Dawn and ORT sub-builds so CI streams
+  their progress instead of hiding the expensive phase behind one outer step.
+
+- GitLab's root build user cannot become the image's named `monai` account:
+  UID/GID 0 already exist. Root-run CI keeps the image's normal non-root account
+  defaults, while the acceptance harness selects the caller identity at runtime
+  for shared test files. Non-root builders still pass their own UID/GID.
+
+- New MR commits did not auto-cancel running jobs in an already-failed pipeline.
+  Cancel superseded failed pipelines explicitly so their large jobs release
+  runner capacity. Keep cheap checks ahead of native/WASM/container builds.
+
+- GitLab's initial MR compiler-cache upload used a `-protected` suffix even
+  though only `main` is protected. Cache keys explicitly include pipeline source
+  and ref protection as well as GitLab's own suffix, so merge-request writers
+  cannot share a namespace with protected-main pushes.
+
+- The upstream ORT WASM builder rejects root unless explicitly allowed. GitLab
+  acceptance uses an unprivileged build container whose default user is root;
+  retain the upstream `--allow_running_as_root` flag. SlicerWeb's public wheel
+  asset is fetched over HTTPS so these jobs need no GitHub CLI credentials.
+
+- The parent's `just preflight` starts nested `just` processes, so a command-line
+  `--set extension` override does not reach its package checks. Validate an
+  isolated extension checkout with its own frozen environments and explicit
+  Ruff/Pyrefly/test commands; a parent preflight still covers the active gitlink.
+
+- Scene-close acceptance needs a test-controlled inference barrier. The public
+  backend pipeline's timing assertion failed because the harness assumed a
+  300 ms delay covered scene closure and that client settlement implied server
+  completion. The fixture now holds the fourth request until the harness has
+  cleared the scene, then waits for its completion event. Retain the start/finish
+  assertions rather than increasing a delay or weakening the check.
+
 - Full inference/service typing and test environments exceed a small runner's
   8 GiB ephemeral-storage budget. Use the `linux, large` runner class for those
   two jobs. Keep dependency caches scoped by job and runner so cross-architecture
@@ -34,8 +77,9 @@ the root tool environment intentionally has no application runtime dependencies.
 
 - Private branch pipelines must run production checks before publication. The
   former publication-only job did not exercise inference, service or application
-  code. Keep all fast test jobs in the publication dependency list; GitHub
-  application/native acceptance still runs after protected-main publication.
+  code. Keep fast checks and application/backend acceptance in the publication
+  dependency list. GitHub repeats application/native acceptance on weekly,
+  public pull-request, version-tag and manual runs.
 
 - Linux ARM64 installs `numpymaxflow` from source. Service CI needs a C++
   compiler and Make even when the x86-64 job succeeds with a prebuilt wheel.
@@ -72,6 +116,10 @@ the root tool environment intentionally has no application runtime dependencies.
 - The hosted Ubuntu image needs Slicer's documented Qt/XCB runtime prerequisites.
   A partial hand-picked list omitted `libxcb-shape.so.0` and prevented both desktop
   applications from starting. Keep the documented Ubuntu 24.04 dependency set.
+  The minimal GitLab image also lacks `libXcomposite`, `libXcursor`, `libXdamage`,
+  `libXfixes` and `libXtst`; the live launcher dependency check found all five.
+  Keep those X11 packages explicit rather than relying on the hosted image's
+  desktop baseline.
 
 - The original MONAI wheel omitted `asgi.py` even though the documented startup
   command imports it. Keep installed-wheel acceptance outside the checkout;
@@ -92,9 +140,11 @@ The internal checkout remains a staging copy during client migration. Make new
 backend changes here; reconcile internal callers explicitly before deleting or
 replacing their existing files. Do not maintain two independently evolving copies.
 
-Run the backend workflow as well as the extension workflow. A Python wheel does
-not include native Dawn assets; native bundle checks and real hardware acceptance
-are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
+Run backend and extension acceptance in GitLab before publication. GitHub repeats
+these checks weekly and on public pull requests, version tags and manual runs.
+A Python wheel does not include native Dawn assets; native bundle checks and real
+hardware acceptance are distinct. Keep CPU container inference and installed-wheel
+HTTP checks real.
 
 - Unified patch files contain space-prefixed blank context lines. Git's ordinary
   trailing-whitespace check flags those lines when a patch is first added as a

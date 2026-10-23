@@ -247,17 +247,24 @@ def test_changed_input_profile_is_rejected_before_upload(label_server):
     assert len(label_server.requests) == 1
 
 
+def endpoint_interpreter():
+    import os
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    return Path(
+        os.environ.get("VRS_TEST_ENDPOINT_PYTHON", str(root / "build/backend/installed/bin/python"))
+    )
+
+
 @pytest.fixture
 def canonical_endpoint(tmp_path):
     import importlib.util
-    import os
     import sys
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3]
-    interpreter = Path(
-        os.environ.get("VRS_TEST_ENDPOINT_PYTHON", str(root / "build/backend/installed/bin/python"))
-    )
+    interpreter = endpoint_interpreter()
     if not interpreter.is_file():
         pytest.skip("Canonical Label HTTP acceptance requires the backend service environment")
     path = root / "tests/integration/slicer/endpoint.py"
@@ -319,6 +326,36 @@ def test_canonical_label_auth_profiles_and_cross_origin_preflight(canonical_endp
         urlopen(Request(url, headers=headers, method="OPTIONS"), timeout=10)
     assert error.value.code == 400
     assert "access-control-allow-origin" not in error.value.headers
+
+
+def test_scene_close_fixture_holds_inference_until_explicit_release(canonical_endpoint, tmp_path):
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+
+    module = sys.modules["workflow_test_endpoint"]
+    interpreter = endpoint_interpreter()
+    image, _, _ = fixture_image(tmp_path)
+    with module.start_endpoint(
+        tmp_path / "barrier", python=interpreter, hold_request=1
+    ) as endpoint:
+        transport = client.MonaiClient(
+            client.ConnectionSettings(endpoint.endpoint, 20, endpoint.token)
+        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            response = pool.submit(transport.infer, image, "arg-fixture", {})
+            try:
+                deadline = time.monotonic() + 10
+                while not any(event["kind"] == "inference-start" for event in endpoint.events()):
+                    assert time.monotonic() < deadline, "Inference did not start"
+                    time.sleep(0.01)
+                assert not response.done()
+                assert not any(event["kind"] == "inference" for event in endpoint.events())
+                released_at = time.time()
+            finally:
+                endpoint.release_inference()
+            assert response.result(timeout=10).image
+        finishes = [event for event in endpoint.events() if event["kind"] == "inference"]
+        assert finishes[0]["timestamp"] > released_at
 
 
 def test_canonical_session_arg_and_model_o_use_uploaded_ct_and_edited_polylines(
@@ -508,15 +545,10 @@ def test_endpoint_service_interpreter_ignores_embedded_slicer_python_environment
     tmp_path,
     monkeypatch,
 ):
-    import os
     import sys
-    from pathlib import Path
 
     module = sys.modules["workflow_test_endpoint"]
-    root = Path(__file__).resolve().parents[3]
-    interpreter = Path(
-        os.environ.get("VRS_TEST_ENDPOINT_PYTHON", str(root / "build/backend/installed/bin/python"))
-    )
+    interpreter = endpoint_interpreter()
     for name, value in {
         "PYTHONHOME": "/Applications/Slicer.app/Contents",
         "PYTHONEXECUTABLE": "/Applications/Slicer.app/Contents/bin/PythonSlicer",

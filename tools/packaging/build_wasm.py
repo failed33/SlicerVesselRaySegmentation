@@ -225,6 +225,7 @@ def build_command(source: Path, output: Path, jobs: int, emscripten: str) -> lis
         "--parallel",
         str(jobs),
         "--compile_no_warning_as_error",
+        "--allow_running_as_root",
         "--cmake_generator",
         "Ninja",
         "--cmake_extra_defines",
@@ -237,7 +238,7 @@ def build_javascript(source: Path, output: Path) -> None:
     env = {
         **os.environ,
         "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
-        "npm_config_cache": str(output / "npm-cache"),
+        "npm_config_cache": os.environ.get("npm_config_cache", str(output / "npm-cache")),
     }
     for directory in ("js", "js/common", "js/web"):
         run(["npm", "ci", "--no-audit", "--no-fund"], source / directory, output, env)
