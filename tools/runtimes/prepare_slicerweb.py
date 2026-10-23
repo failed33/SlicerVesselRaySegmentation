@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -14,22 +15,11 @@ from pathlib import Path
 def prepare(output: Path) -> dict[str, str]:
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "gh",
-            "release",
-            "download",
-            "runtime-latest",
-            "--repo",
-            "lassoan/slicerweb-app",
-            "--pattern",
-            "wheels.zip",
-            "--dir",
-            str(output),
-            "--clobber",
-        ],
-        check=True,
-    )
+    url = "https://github.com/lassoan/slicerweb-app/releases/download/runtime-latest/wheels.zip"
+    with urllib.request.urlopen(url, timeout=120) as response:
+        with (output / "wheels.zip").open("wb") as destination:
+            while chunk := response.read(1024 * 1024):
+                destination.write(chunk)
     wheels = output / "wheels"
     with zipfile.ZipFile(output / "wheels.zip") as archive:
         archive.extractall(wheels)

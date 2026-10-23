@@ -4,6 +4,9 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 channel="${1:?Choose stable or nightly}"
 mode="${2:-scripted}"
+if [[ "$mode" == scripted && "$channel" == stable ]]; then
+  python -m unittest discover -s tests/infrastructure -v
+fi
 export QTWEBENGINE_DISABLE_SANDBOX=1 LIBGL_ALWAYS_SOFTWARE=1
 export PACKAGE_ROOT="$PWD/build/desktop-package/unpacked"
 export TEST_REPORT="$PWD/build/desktop-package/desktop.json"

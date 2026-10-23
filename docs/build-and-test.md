@@ -82,10 +82,14 @@ separate and bounded to 2 GiB each. Emscripten system libraries and npm download
 are cached alongside the corresponding build. No virtual environment, application
 download, CMake build tree or test result is restored from cache. Builds and tests
 still run after every restore. GitLab retains its protected/unprotected cache
-separation. Python caches are pruned with `uv cache prune --ci` before upload.
+separation, with pipeline source and ref-protection state also present in keys.
+Python caches are pruned with `uv cache prune --ci` before upload.
 
 BuildKit exports multi-stage container layers to the project's existing registry,
 using branch-specific `ci-cache-*` tags and the default branch as a read fallback.
+The extension project's daily registry cleanup removes matching tags older than
+seven days, keeps the newest tag per image and preserves `ci-cache-main`.
+Regular image tags are outside that cleanup policy.
 Authentication uses the native CI registry credentials. The private/public trust
 bundle is passed to the isolated BuildKit builder when the runner supplies one.
 Final acceptance images stay in the job-local daemon. Compiled native/WASM
@@ -177,7 +181,7 @@ xvfb-run -a /path/to/Slicer --no-splash --no-main-window --testing \
   --python-script "$PWD/tests/integration/slicer/desktop.py"
 ```
 
-Browser tests need Python 3.12+, CMake, Make, Git, GitHub CLI, Node 22+ and Chrome:
+Browser tests need Python 3.12+, CMake, Make, Git, Node 22+ and Chrome:
 
 ```sh
 python3 tools/runtimes/prepare_slicerweb.py --output build/web-runtime

@@ -225,6 +225,7 @@ def build_command(source: Path, output: Path, jobs: int, emscripten: str) -> lis
         "--parallel",
         str(jobs),
         "--compile_no_warning_as_error",
+        "--allow_running_as_root",
         "--cmake_generator",
         "Ninja",
         "--cmake_extra_defines",

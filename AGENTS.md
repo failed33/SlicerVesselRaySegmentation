@@ -27,6 +27,16 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- GitLab's initial MR compiler-cache upload used a `-protected` suffix even
+  though only `main` is protected. Cache keys explicitly include pipeline source
+  and ref protection as well as GitLab's own suffix, so merge-request writers
+  cannot share a namespace with protected-main pushes.
+
+- The upstream ORT WASM builder rejects root unless explicitly allowed. GitLab
+  acceptance uses an unprivileged build container whose default user is root;
+  retain the upstream `--allow_running_as_root` flag. SlicerWeb's public wheel
+  asset is fetched over HTTPS so these jobs need no GitHub CLI credentials.
+
 - The parent's `just preflight` starts nested `just` processes, so a command-line
   `--set extension` override does not reach its package checks. Validate an
   isolated extension checkout with its own frozen environments and explicit

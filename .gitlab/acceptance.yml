@@ -19,7 +19,7 @@
   cache:
     key:
       files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
-      prefix: acceptance-ubuntu2404-amd64-$CI_JOB_NAME_SLUG
+      prefix: acceptance-ubuntu2404-amd64-$CI_JOB_NAME_SLUG-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
     paths: [build/cache/uv/]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -45,7 +45,7 @@ acceptance:shaders:
   cache:
     key:
       files: [tools/packaging/compile_shaders.py]
-      prefix: slang-linux-amd64
+      prefix: slang-linux-amd64-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
     paths: [build/slang/]
   script:
     - python tools/packaging/compile_shaders.py --check
@@ -108,11 +108,11 @@ acceptance:native:
   cache:
     - key:
         files: [deployment/inference/uv.lock]
-        prefix: native-python312-ubuntu2404-amd64
+        prefix: native-python312-ubuntu2404-amd64-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/uv/]
     - key:
         files: [deployment/inference/native/pins.cmake]
-        prefix: ccache-native-ubuntu2404-amd64-v1
+        prefix: ccache-native-ubuntu2404-amd64-v1-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/ccache/]
       when: always
   script:
@@ -136,16 +136,16 @@ acceptance:wasm:
   cache:
     - key:
         files: [deployment/inference/uv.lock]
-        prefix: wasm-python312-ubuntu2404-amd64
+        prefix: wasm-python312-ubuntu2404-amd64-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/uv/]
     - key:
         files: [deployment/inference/native/pins.cmake, deployment/inference/wasm/toolchain.json]
-        prefix: ccache-wasm-ubuntu2404-amd64-v1
+        prefix: ccache-wasm-ubuntu2404-amd64-v1-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/ccache/, build/cache/emscripten/]
       when: always
     - key:
         files: [deployment/inference/native/pins.cmake]
-        prefix: npm-wasm-node24-amd64
+        prefix: npm-wasm-node24-amd64-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/npm/]
   script:
     - ccache --zero-stats
@@ -186,9 +186,9 @@ acceptance:web:
   cache:
     - key:
         files: [deployment/inference/uv.lock, deployment/monai/uv.lock]
-        prefix: web-python312-ubuntu2404-amd64
+        prefix: web-python312-ubuntu2404-amd64-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/uv/]
-    - key: web-npm-node24-amd64-v1
+    - key: web-npm-node24-amd64-v1-$CI_PIPELINE_SOURCE-$CI_COMMIT_REF_PROTECTED
       paths: [build/cache/npm/]
   script:
     - bash tools/ci/web.sh runtime
