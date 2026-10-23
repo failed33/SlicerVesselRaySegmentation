@@ -49,7 +49,7 @@
 
 acceptance:shaders:
   extends: .acceptance
-  timeout: 10 minutes
+  timeout: 20 minutes
   variables:
     ACCEPTANCE_ENV: shaders
   cache:
@@ -62,7 +62,7 @@ acceptance:shaders:
 
 acceptance:shared-python:
   extends: .acceptance
-  timeout: 15 minutes
+  timeout: 20 minutes
   parallel:
     matrix:
       - PYTHON_VERSION: "3.12"

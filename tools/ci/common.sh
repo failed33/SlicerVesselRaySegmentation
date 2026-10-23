@@ -3,7 +3,6 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/build/cache/uv}"
-export UV_LINK_MODE=copy
 export npm_config_cache="${npm_config_cache:-$PWD/build/cache/npm}"
 export ORT_DISABLE_TELEMETRY=1 MLFLOW_DISABLE_TELEMETRY=true MLFLOW_DISABLE_AGENT_HINT=1
 export CCACHE_DIR="${CCACHE_DIR:-$PWD/build/cache/ccache}"

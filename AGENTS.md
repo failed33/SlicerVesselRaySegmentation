@@ -27,6 +27,13 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- CI's uv cache and environment share the job filesystem. Let uv use its native
+  linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
+  set and added avoidable disk I/O. Kubernetes startup and cache restoration
+  also count toward the job timeout: a six-minute startup exhausted the old
+  ten-minute shader limit during package setup. Keep setup margin and fast
+  archive settings, and measure restoration as well as compiler cache hits.
+
 - Ninja buffers a nested ExternalProject build's output until that complete
   command finishes. Native compilation can therefore look idle for tens of
   minutes. Keep `USES_TERMINAL_BUILD` on the Dawn and ORT sub-builds so CI streams
