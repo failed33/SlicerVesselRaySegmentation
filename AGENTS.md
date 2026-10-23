@@ -41,6 +41,11 @@ the root tool environment intentionally has no application runtime dependencies.
 - Linux ARM64 installs `numpymaxflow` from source. Service CI needs a C++
   compiler and Make even when the x86-64 job succeeds with a prebuilt wheel.
 
+- GCC 14 enables C++ module dependency scanning for C++20 targets. The native
+  bridge uses ordinary C API headers, so keep its `CXX_SCAN_FOR_MODULES` disabled.
+  Otherwise Ninja's build-graph dry run requires a `CXX.dd` file that dry-run
+  scanning never materializes. Keep the Linux ordering regression active.
+
 - ModelO gathers origins around the continuous selected origin, but truncates that
   origin for the integer output crop. Half-open boundary tests must cover both
   coordinate conventions. The planner's two explicit margin keywords control
