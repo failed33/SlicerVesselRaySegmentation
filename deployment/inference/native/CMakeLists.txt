@@ -125,8 +125,10 @@ target_link_libraries(
   PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,dawn_native_archive>"
           ${DAWN_SYSTEM_LIBRARIES} Threads::Threads ${CMAKE_DL_LIBS})
 set_target_properties(
-  webgpu_dawn PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${_artifacts}"
-                         RUNTIME_OUTPUT_DIRECTORY "${_artifacts}")
+  webgpu_dawn
+  PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${_artifacts}"
+             RUNTIME_OUTPUT_DIRECTORY "${_artifacts}"
+             CXX_SCAN_FOR_MODULES OFF)
 if(APPLE)
   set_target_properties(webgpu_dawn PROPERTIES INSTALL_NAME_DIR "@rpath"
                                                BUILD_WITH_INSTALL_NAME_DIR ON)

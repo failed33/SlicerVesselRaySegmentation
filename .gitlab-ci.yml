@@ -64,7 +64,7 @@ test:service-and-application:
   variables:
     VRS_TEST_ENDPOINT_PYTHON: $CI_PROJECT_DIR/deployment/monai/.venv-typecheck/bin/python
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends libgomp1
+    - apt-get update && apt-get install -y --no-install-recommends g++ make libgomp1
     - python -m pip install uv==0.12.23
   script:
     - uv sync --frozen
