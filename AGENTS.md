@@ -129,9 +129,11 @@ The internal checkout remains a staging copy during client migration. Make new
 backend changes here; reconcile internal callers explicitly before deleting or
 replacing their existing files. Do not maintain two independently evolving copies.
 
-Run the backend workflow as well as the extension workflow. A Python wheel does
-not include native Dawn assets; native bundle checks and real hardware acceptance
-are distinct. Keep CPU container inference and installed-wheel HTTP checks real.
+Run backend and extension acceptance in GitLab before publication. GitHub repeats
+these checks weekly and on public pull requests, version tags and manual runs.
+A Python wheel does not include native Dawn assets; native bundle checks and real
+hardware acceptance are distinct. Keep CPU container inference and installed-wheel
+HTTP checks real.
 
 - Unified patch files contain space-prefixed blank context lines. Git's ordinary
   trailing-whitespace check flags those lines when a patch is first added as a
