@@ -70,8 +70,9 @@ Those three jobs cover the scripted application checks as well as compiled
 inference, so GitLab does not launch another copy of the basic application matrix.
 All acceptance jobs are required by `publish:github`.
 
-The jobs use Ubuntu 24.04 on `linux, large, amd64` runners, with at most two
-compiler workers and a two-hour build limit. Container acceptance uses the
+The jobs use Ubuntu 24.04 on `linux, large, amd64` runners, with three
+compiler workers and a two-hour build limit. GitHub retains two compiler workers.
+Container acceptance uses the
 runner's existing Unix-socket Docker-in-Docker service. Its temporary bind mounts
 remain under the shared project directory; `VRS_CONTAINER_HOST=docker` selects
 the service network address without changing installed-wheel HTTP acceptance.
@@ -85,6 +86,10 @@ download, CMake build tree or test result is restored from cache. Builds and tes
 still run after every restore. GitLab retains its protected/unprotected cache
 separation, with pipeline source and ref-protection state also present in keys.
 Python caches are pruned with `uv cache prune --ci` before upload.
+The cache and environment share the job filesystem so uv can link dependencies
+instead of copying them. GitLab uses Fastzip's fastest archive mode and reports
+transfer progress. Short acceptance jobs allow twenty minutes, including
+Kubernetes startup and cache restoration.
 
 BuildKit exports multi-stage container layers to the project's existing registry,
 using branch-specific `ci-cache-*` tags and the default branch as a read fallback.
