@@ -109,6 +109,10 @@ the root tool environment intentionally has no application runtime dependencies.
 - The hosted Ubuntu image needs Slicer's documented Qt/XCB runtime prerequisites.
   A partial hand-picked list omitted `libxcb-shape.so.0` and prevented both desktop
   applications from starting. Keep the documented Ubuntu 24.04 dependency set.
+  The minimal GitLab image also lacks `libXcomposite`, `libXcursor`, `libXdamage`,
+  `libXfixes` and `libXtst`; the live launcher dependency check found all five.
+  Keep those X11 packages explicit rather than relying on the hosted image's
+  desktop baseline.
 
 - The original MONAI wheel omitted `asgi.py` even though the documented startup
   command imports it. Keep installed-wheel acceptance outside the checkout;

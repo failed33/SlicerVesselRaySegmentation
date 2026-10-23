@@ -18,7 +18,8 @@ case "$1" in
     rm /tmp/node.tar.xz ;;
   desktop)
     apt-get install -y --no-install-recommends xvfb libglu1-mesa libopengl0 libpulse-mainloop-glib0 \
-      libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0 libvulkan1 mesa-vulkan-drivers libegl1 libxext6 ;;
+      libnss3 libasound2t64 qt5dxcb-plugin libsm6 libxcb-cursor0 libvulkan1 mesa-vulkan-drivers libegl1 libxext6 \
+      libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxtst6 ;;
   packages)
     apt-get install -y --no-install-recommends docker.io docker-buildx libgomp1 ;;
   shared-python|shaders) ;;
