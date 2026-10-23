@@ -38,6 +38,9 @@ the root tool environment intentionally has no application runtime dependencies.
   code. Keep all fast test jobs in the publication dependency list; GitHub
   application/native acceptance still runs after protected-main publication.
 
+- Linux ARM64 installs `numpymaxflow` from source. Service CI needs a C++
+  compiler and Make even when the x86-64 job succeeds with a prebuilt wheel.
+
 - ModelO gathers origins around the continuous selected origin, but truncates that
   origin for the integer output crop. Half-open boundary tests must cover both
   coordinate conventions. The planner's two explicit margin keywords control
