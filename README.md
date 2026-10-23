@@ -30,8 +30,8 @@ The rest is AI generated slop, as I haven't cleaned it up.
 ## Build and test
 
 [Extension CI](https://github.com/failed33/SlicerVesselRaySegmentation/actions/workflows/extension-ci.yml)
-runs on pushes to `main`, version tags, pull requests, manual dispatch and daily
-at 04:27 UTC. It uses standard public GitHub-hosted Ubuntu runners:
+runs on pushes to `main`, version tags, pull requests, manual dispatch and weekly
+on Sunday at 04:27 UTC. It uses standard public GitHub-hosted Ubuntu runners:
 
 | Target | Build | Tests |
 | --- | --- | --- |
