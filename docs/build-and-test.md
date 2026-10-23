@@ -82,7 +82,8 @@ works on both executors. Cache export failures are nonfatal; image builds and
 HTTP acceptance remain required. The optional `acceptance:packages:manual` job
 repeats the package gate with a selected `CONTAINER_RUNNER_TAG` (default `large`)
 when checking a different executor. It can start independently of the automatic
-pipeline's prerequisites.
+pipeline's prerequisites. Set the runner-tag variable when creating a web/API
+pipeline; variables supplied when playing a manual job do not reselect its runner.
 
 GitLab caches uv dependencies by lockfile and job role, and compiler results by
 platform and pinned runtime/toolchain. Native and WASM compiler caches are

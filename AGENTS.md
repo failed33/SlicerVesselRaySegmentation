@@ -33,6 +33,9 @@ the root tool environment intentionally has no application runtime dependencies.
   optional (`ignore-error=true`); image builds and real HTTP acceptance still
   fail normally. The manual package job can select a runner tag to check executor
   differences without duplicating every automatic pipeline.
+  Runner tags are fixed at pipeline creation: set `CONTAINER_RUNNER_TAG` when
+  creating a web/API pipeline. A variable supplied when playing a manual job
+  changed its script environment but did not reselect the runner.
 
 - CI's uv cache and environment share the job filesystem. Let uv use its native
   linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
