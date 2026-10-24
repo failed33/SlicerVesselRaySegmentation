@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import SimpleITK as sitk
-from model_o_inference.runtime import _read_ct, predict_model_o
+from model_o_inference.runtime import ModelOExecution, _read_ct, predict_model_o
 from pydantic import ValidationError
 
 from monai_service.contracts import ArtifactIdentity, InferenceRequest, ResolvedArtifact
@@ -46,9 +46,7 @@ def _pipeline_double(predict):
     return SimpleNamespace(
         submit=lambda case, _resources: predict(case),
         collect=lambda mask: mask,
-        session=SimpleNamespace(
-            native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"])
-        ),
+        native_session=SimpleNamespace(get_providers=lambda: ["WebGpuExecutionProvider"]),
     )
 
 
@@ -217,7 +215,11 @@ def test_worker_passes_submitted_ct_and_polylines_to_shared_preparation(
     monkeypatch.setattr(planning, "build_patch_plans", reach_planner)
     with pytest.raises(PlanningReached):
         predict_model_o(
-            input_path, tmp_path / "model", output_path, parameters, tmp_path / "assets"
+            input_path,
+            tmp_path / "model",
+            output_path,
+            parameters,
+            ModelOExecution(assets=tmp_path / "assets"),
         )
     assert len(captured) == 1
     assert not output_path.exists()
@@ -276,7 +278,7 @@ def test_gpu_patch_progress_logs_first_periodic_and_last_completion(monkeypatch,
 
     plans = [PatchPlan(np.array([6, 6, 6]), np.array([index]), 250.0) for index in range(4)]
     pipeline = _pipeline_double(lambda _case: np.zeros((48,) * 3, dtype=bool))
-    monkeypatch.setattr(runtime, "_gpu_pipeline", lambda *_args: pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", lambda *_args: pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda _image, _context, plan, _capacity: plan)
     clock = [0.0]
     pipeline.collect = lambda mask: (clock.__setitem__(0, clock[0] + 5), mask)[1]
@@ -284,7 +286,7 @@ def test_gpu_patch_progress_logs_first_periodic_and_last_completion(monkeypatch,
     caplog.set_level("INFO", logger=runtime.__name__)
     volume = SimpleNamespace(array=np.zeros((12,) * 3, dtype=np.float32))
 
-    mask, capacity, provider, _timings = runtime._infer_patches(
+    mask, capacity, provider, _timings = runtime._infer_dawn_patches(
         _host_double(), None, plans, runtime._PatchExecution(volume, Path("unused.onnx"))
     )
     assert mask.shape == (12,) * 3
@@ -402,10 +404,10 @@ def test_grouped_inference_reuses_host_closes_groups_and_preserves_max_union(
         return _pipeline_double(predict)
 
     monkeypatch.setattr(runtime, "_ray_case", ray_case)
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(MaskMerger, "finalize", finalize)
     caplog.set_level("INFO", logger=runtime.__name__)
-    mask, capacity, provider, timings = runtime._infer_patches(
+    mask, capacity, provider, timings = runtime._infer_dawn_patches(
         host,
         context,
         plans,
@@ -458,10 +460,10 @@ def test_grouped_inference_releases_current_group_when_prediction_fails(monkeypa
 
         return _pipeline_double(predict)
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda *_args: None)
     with pytest.raises(RuntimeError, match="prediction failed"):
-        runtime._infer_patches(
+        runtime._infer_dawn_patches(
             _host_double(),
             None,
             plans,
@@ -495,7 +497,7 @@ def test_preview_observer_failure_stops_patches_and_releases_gpu_group(
 
         return _pipeline_double(predict)
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     monkeypatch.setattr(runtime, "_ray_case", lambda _image, _context, plan, _capacity: plan)
     execution = runtime._PatchExecution(
         SimpleNamespace(array=np.zeros((12,) * 3, dtype=np.float32)),
@@ -503,7 +505,7 @@ def test_preview_observer_failure_stops_patches_and_releases_gpu_group(
         SimpleNamespace(on_progress=on_progress),
     )
     with pytest.raises(RuntimeError, match="preview failed"):
-        runtime._infer_patches(_host_double(), None, plans, execution, queue_depth=queue_depth)
+        runtime._infer_dawn_patches(_host_double(), None, plans, execution, queue_depth=queue_depth)
     assert len(predicted) == min(queue_depth, len(plans))
     assert closed == [True]
 
@@ -526,13 +528,13 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
     def pipeline(_resources, _host, _model, _case, _ct_buffer):
         return _pipeline_double(lambda _case: np.ones((48,) * 3, dtype=bool))
 
-    monkeypatch.setattr(runtime, "_gpu_pipeline", pipeline)
+    monkeypatch.setattr(runtime, "_dawn_pipeline", pipeline)
     baseline = predict_model_o(
         input_path,
         tmp_path / "model",
         tmp_path / "baseline.nrrd",
         ModelOParameters.model_validate(polyline_data),
-        tmp_path / "assets",
+        ModelOExecution(assets=tmp_path / "assets"),
     )
     previews = []
     observer = SimpleNamespace(
@@ -543,8 +545,7 @@ def test_runtime_reports_sparse_planning_counts_timings_and_output_grid(
         tmp_path / "model",
         output_path,
         ModelOParameters.model_validate(polyline_data),
-        tmp_path / "assets",
-        observer=observer,
+        ModelOExecution(assets=tmp_path / "assets", observer=observer),
     )
     assert {key: value for key, value in metadata.items() if key != "timings_seconds"} == {
         key: value for key, value in baseline.items() if key != "timings_seconds"
@@ -621,7 +622,9 @@ def test_real_native_model_o_preserves_binary_output_and_physical_geometry(tmp_p
         ]
     )
 
-    metadata = predict_model_o(input_path, model, output_path, parameters, assets)
+    metadata = predict_model_o(
+        input_path, model, output_path, parameters, ModelOExecution(assets=assets)
+    )
     mask = sitk.ReadImage(str(output_path))
     assert mask.GetSize() == image.GetSize()
     assert mask.GetPixelID() == sitk.sitkUInt8

@@ -8,8 +8,9 @@ from typing import cast
 import numpy as np
 import pytest
 from dawn_ort.host import Buffer, DawnHost, Kernel
-from model_o_inference import dawn_inputs
-from model_o_inference.dawn_inputs import DawnPatchInputs, PackedRayCase, RayCase, pack_ray_geometry
+from model_o_inference import inputs
+from model_o_inference.dawn_inputs import DawnPatchInputs
+from model_o_inference.inputs import PackedRayCase, RayCase, pack_ray_geometry
 
 
 class _Kernel:
@@ -131,7 +132,7 @@ def test_direct_packed_case_preserves_q16_bits_and_uploads_without_quantization(
     geometry = pack_ray_geometry(lattice, hu)
     packed = PackedRayCase(case.volume, case.spacing, geometry, case.center, case.h0)
     monkeypatch.setattr(
-        dawn_inputs,
+        inputs,
         "quantize_to_fixed",
         lambda *_args: pytest.fail("Already packed Q16 geometry must not be requantized"),
     )

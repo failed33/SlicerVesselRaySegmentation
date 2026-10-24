@@ -37,7 +37,7 @@ upstream runtime requirements; it is not part of the desktop bundle.
 
 ## Build and test
 
-From the repository root, with uv 0.12.23:
+From the repository root, with uv 0.10.7 or newer:
 
 ```sh
 uv build deployment/inference --out-dir build/backend/dist
@@ -77,6 +77,24 @@ upstream archives. Configured targets are not a claim of hardware acceptance. Pu
 currently compiles Linux x86-64 and checks the bundle on Mesa software Vulkan.
 Physical GPU regression tests require `DAWN_ORT_NATIVE_ASSETS` and explicitly
 reject software and Null adapters.
+
+## CUDA ModelO
+
+`model-o-support` contains preparation, graph validation and image IO without
+selecting an execution provider. The service's `model-o-cuda` dependency group
+adds ONNX Runtime GPU 1.30 and NVIDIA CUDA Python. See the
+[service instructions](../monai/README.md#cuda-execution) for installation.
+
+CUDA and Dawn use the same Slang sampler, graph preparation, capacity groups,
+patch schedule, strict zero-logit threshold, binary union and preview observer.
+The CUDA path uses ORT-owned device tensors and a shared CUDA stream. NVRTC
+compiles the packaged CUDA source for the allocated device; it needs no runtime
+Slang compiler or Dawn bundle. Each inference pipeline owns its loaded CUDA
+module, including Slang's global pointer/count parameter block.
+
+The shader builder regenerates CUDA, its reflection and matching upstream prelude
+alongside WGSL. `compile_shaders.py --check` checks both targets. Generated CUDA
+and its prelude carry SHA-256 checks and the upstream Slang license in the wheel.
 
 The desktop packager combines the native asset ZIP, shared Python wheel, a private
 CPython installation and locked `arg`/`model-o` dependencies. It does not install

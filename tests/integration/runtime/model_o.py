@@ -138,7 +138,6 @@ def generate(output: Path) -> dict[str, Any]:
         ("constant", np.full_like(volume, -200)),
         ("q16-precision", precision),
     ):
-        data.tofile(output / f"{label}.bin")
         for iteration, (center, h0) in enumerate(
             (
                 (np.array([6, 6, 7]), 180.0),
@@ -148,42 +147,7 @@ def generate(output: Path) -> dict[str, Any]:
             )
         ):
             name = f"{label}-{iteration}"
-            depth, height, width = data.shape
-            corner_z, corner_y, corner_x = center - PATCH_SIZE // 2
-            config = config_record(
-                (depth, height, width),
-                len(geometry),
-                h0,
-                (int(corner_z), int(corner_y), int(corner_x)),
-            )
-            config.tofile(output / f"{name}-config.bin")
-            specs = []
-            expected = reference(data, geometry, center, h0)
-            for spec in output_specs(len(geometry)):
-                values = expected[spec.name]
-                filename = f"{name}-{spec.name}.bin"
-                values.tofile(output / filename)
-                specs.append(
-                    {
-                        "name": spec.name,
-                        "dtype": str(spec.dtype),
-                        "shape": list(spec.shape),
-                        "bytes": spec.nbytes,
-                        "expected": filename,
-                        "atol": 0.0003 if spec.name == "ray_features" else 0.0001,
-                        "rtol": 0.00003,
-                    }
-                )
-            manifest["cases"].append(
-                {
-                    "name": name,
-                    "volume": f"{label}.bin",
-                    "config": f"{name}-config.bin",
-                    "center": center.tolist(),
-                    "h0": h0,
-                    "outputs": specs,
-                }
-            )
+            manifest["cases"].append(write_case(output, data, geometry, center, h0, name))
     logits = np.array(
         [-80, -1e-7, -np.finfo(np.float32).tiny, -0.0, 0.0, np.finfo(np.float32).tiny, 1e-7, 80],
         np.float32,
@@ -194,10 +158,74 @@ def generate(output: Path) -> dict[str, Any]:
     return manifest
 
 
+def write_case(
+    output: Path,
+    data: np.ndarray,
+    geometry: np.ndarray,
+    center: np.ndarray,
+    h0: float,
+    name: str,
+) -> dict[str, Any]:
+    """Write the common sampler fixture contract for any phantom geometry."""
+    data.tofile(output / f"{name}-volume.bin")
+    depth, height, width = data.shape
+    z, y, x = center - PATCH_SIZE // 2
+    config = config_record((depth, height, width), len(geometry), h0, (int(z), int(y), int(x)))
+    config.tofile(output / f"{name}-config.bin")
+    specs = []
+    expected = reference(data, geometry, center, h0)
+    for spec in output_specs(len(geometry)):
+        filename = f"{name}-{spec.name}.bin"
+        expected[spec.name].tofile(output / filename)
+        specs.append(
+            {
+                "name": spec.name,
+                "dtype": str(spec.dtype),
+                "shape": list(spec.shape),
+                "bytes": spec.nbytes,
+                "expected": filename,
+                "atol": 0.0003 if spec.name == "ray_features" else 0.0001,
+                "rtol": 0.00003,
+            }
+        )
+    return {
+        "name": name,
+        "volume": f"{name}-volume.bin",
+        "config": f"{name}-config.bin",
+        "center": center.tolist(),
+        "h0": h0,
+        "outputs": specs,
+    }
+
+
+def generate_dense(output: Path) -> None:
+    """A bright cylindrical vessel and dense rays produce a nonempty trained mask."""
+    output.mkdir(parents=True, exist_ok=True)
+    _, y, x = np.indices((PATCH_SIZE,) * 3)
+    volume = np.where((y - 24) ** 2 + (x - 24) ** 2 <= 9, 400, 40).astype(np.float32)
+    angles = np.tile(np.arange(512) * np.pi * (3 - np.sqrt(5)), 8)
+    rays = len(angles)
+    positions = np.column_stack((np.repeat(np.arange(10, 39, 4), 512), np.full((rays, 2), 24)))
+    directions = np.column_stack((np.zeros(rays), np.cos(angles), np.sin(angles))) * 0.25
+    lattice = np.rint(np.column_stack((positions, directions)) * FIXED_POINT_SCALE).astype(np.int32)
+    hu = np.full(rays, 400, np.float32)
+    geometry = np.column_stack((hu.view(np.uint32), lattice.view(np.uint32)))
+    geometry.tofile(output / "geometry.bin")
+    case = write_case(output, volume, geometry, np.array([24, 24, 24]), 400, "dense-vessel-phantom")
+    manifest = {
+        "rays": rays,
+        "volume_shape": list(volume.shape),
+        "geometry": "geometry.bin",
+        "cases": [case],
+    }
+    (output / "model_o.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+
 def run_native(host: Any, directory: Path) -> dict[str, Any]:
     import onnxruntime as ort
     from dawn_ort import DeviceTensor, GpuSession
-    from model_o_inference.dawn_inputs import DawnPatchInputs, PackedRayCase
+    from model_o_inference.dawn_inputs import DawnPatchInputs
+    from model_o_inference.inputs import PackedRayCase
 
     manifest = json.loads((directory / "model_o.json").read_text())
     geometry = np.fromfile(directory / manifest["geometry"], np.uint32).reshape(-1, 7)
@@ -324,7 +352,10 @@ def attach_model(directory: Path, path: Path) -> None:
     manifest = json.loads(manifest_path.read_text())
     model = prepare_model_o(str(path), manifest["rays"])
     (directory / "selected.onnx").write_bytes(model)
-    session = ort.InferenceSession(model, providers=["CPUExecutionProvider"])
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 4
+    options.inter_op_num_threads = 1
+    session = ort.InferenceSession(model, sess_options=options, providers=["CPUExecutionProvider"])
     # End-to-end provider arithmetic differs more than the sampled inputs.
     # Keep this tolerance separate from the strict shader checks and require
     # exact binary masks, including at the decision boundary.
@@ -354,8 +385,8 @@ def attach_model(directory: Path, path: Path) -> None:
 def run_trained_native(
     host: Any, directory: Path, manifest: dict[str, Any], ct: Any
 ) -> dict[str, Any]:
-    from model_o_inference.dawn_inputs import PackedRayCase
-    from model_o_inference.runtime import _gpu_pipeline
+    from model_o_inference.inputs import PackedRayCase
+    from model_o_inference.runtime import _dawn_pipeline
 
     model_path = directory / manifest["model"]["file"]
     assert hashlib.sha256(model_path.read_bytes()).hexdigest() == manifest["model"]["sha256"]
@@ -366,7 +397,7 @@ def run_trained_native(
         volume = np.fromfile(directory / first["volume"], np.float32).reshape(
             manifest["volume_shape"]
         )
-        pipeline = _gpu_pipeline(
+        pipeline = _dawn_pipeline(
             resources,
             host,
             model_path,

@@ -92,6 +92,12 @@ the root tool environment intentionally has no application runtime dependencies.
   two jobs. Keep dependency caches scoped by job and runner so cross-architecture
   wheels and unrelated environments do not fill a small job's workspace.
 
+- ORT's automatic CPU thread count can follow the full node rather than a Slurm
+  allocation's cpuset. On Grete this emitted affinity errors and stalled the
+  CPU reference check. Keep explicit thread counts in CUDA host sessions and
+  their CPU acceptance references; OpenMP environment settings alone do not
+  configure ORT's thread pool.
+
 - Private branch pipelines must run production checks before publication. The
   former publication-only job did not exercise inference, service or application
   code. Keep fast checks and application/backend acceptance in the publication

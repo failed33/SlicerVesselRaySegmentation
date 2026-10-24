@@ -1,0 +1,615 @@
+{
+  "parameters": [
+    {
+      "name": "config",
+      "binding": {
+        "kind": "uniform",
+        "offset": 0,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "resultType": {
+          "kind": "struct",
+          "name": "PatchConfig",
+          "fields": [
+            {
+              "name": "depth",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "uint32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 0,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "height",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "uint32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 4,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "width",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "uint32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 8,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "rayCount",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "uint32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 12,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "cornerZ",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 16,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "cornerY",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 20,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "cornerX",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 24,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "h0",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 28,
+                "size": 4,
+                "elementStride": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "volume_zyx",
+      "binding": {
+        "kind": "uniform",
+        "offset": 16,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    },
+    {
+      "name": "ray_geometry",
+      "binding": {
+        "kind": "uniform",
+        "offset": 32,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "resultType": {
+          "kind": "struct",
+          "name": "RayGeometry",
+          "fields": [
+            {
+              "name": "originHU",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 0,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "originZ",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 4,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "originY",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 8,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "originX",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 12,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "stepZ",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 16,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "stepY",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 20,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "stepX",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 24,
+                "size": 4,
+                "elementStride": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "ray_features",
+      "binding": {
+        "kind": "uniform",
+        "offset": 48,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    },
+    {
+      "name": "ray_mask",
+      "binding": {
+        "kind": "uniform",
+        "offset": 64,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "uint32"
+        }
+      }
+    },
+    {
+      "name": "origin_zyx_norm",
+      "binding": {
+        "kind": "uniform",
+        "offset": 80,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "struct",
+          "name": "PackedZYX",
+          "fields": [
+            {
+              "name": "z",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 0,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "y",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 4,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "x",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 8,
+                "size": 4,
+                "elementStride": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "direction_zyx_norm",
+      "binding": {
+        "kind": "uniform",
+        "offset": 96,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "struct",
+          "name": "PackedZYX",
+          "fields": [
+            {
+              "name": "z",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 0,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "y",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 4,
+                "size": 4,
+                "elementStride": 0
+              }
+            },
+            {
+              "name": "x",
+              "type": {
+                "kind": "scalar",
+                "scalarType": "float32"
+              },
+              "binding": {
+                "kind": "uniform",
+                "offset": 8,
+                "size": 4,
+                "elementStride": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "voxel_indices",
+      "binding": {
+        "kind": "uniform",
+        "offset": 112,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "vector",
+          "elementCount": 2,
+          "elementType": {
+            "kind": "scalar",
+            "scalarType": "uint32"
+          }
+        }
+      }
+    },
+    {
+      "name": "ray_hu",
+      "binding": {
+        "kind": "uniform",
+        "offset": 128,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    },
+    {
+      "name": "ct_patch",
+      "binding": {
+        "kind": "uniform",
+        "offset": 144,
+        "size": 16,
+        "elementStride": 0
+      },
+      "type": {
+        "kind": "resource",
+        "baseShape": "structuredBuffer",
+        "access": "readWrite",
+        "resultType": {
+          "kind": "scalar",
+          "scalarType": "float32"
+        }
+      }
+    }
+  ],
+  "entryPoints": [
+    {
+      "name": "main_0",
+      "stage": "compute",
+      "parameters": [
+        {
+          "name": "id",
+          "semanticName": "SV_DISPATCHTHREADID",
+          "type": {
+            "kind": "vector",
+            "elementCount": 3,
+            "elementType": {
+              "kind": "scalar",
+              "scalarType": "uint32"
+            }
+          }
+        }
+      ],
+      "threadGroupSize": [
+        64,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "name": "config",
+          "binding": {
+            "kind": "uniform",
+            "offset": 0,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "volume_zyx",
+          "binding": {
+            "kind": "uniform",
+            "offset": 16,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "ray_geometry",
+          "binding": {
+            "kind": "uniform",
+            "offset": 32,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "ray_features",
+          "binding": {
+            "kind": "uniform",
+            "offset": 48,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "ray_mask",
+          "binding": {
+            "kind": "uniform",
+            "offset": 64,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "origin_zyx_norm",
+          "binding": {
+            "kind": "uniform",
+            "offset": 80,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "direction_zyx_norm",
+          "binding": {
+            "kind": "uniform",
+            "offset": 96,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "voxel_indices",
+          "binding": {
+            "kind": "uniform",
+            "offset": 112,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "ray_hu",
+          "binding": {
+            "kind": "uniform",
+            "offset": 128,
+            "size": 16,
+            "elementStride": 0
+          }
+        },
+        {
+          "name": "ct_patch",
+          "binding": {
+            "kind": "uniform",
+            "offset": 144,
+            "size": 16,
+            "elementStride": 0
+          }
+        }
+      ]
+    }
+  ],
+  "bindlessSpaceIndex": 1,
+  "build": {
+    "compiler": "2026.12",
+    "flags": [
+      "-target",
+      "cuda",
+      "-entry",
+      "main",
+      "-stage",
+      "compute",
+      "-fp-mode",
+      "precise",
+      "-DPATCH_SIZE=48",
+      "-DRAY_LENGTH=120",
+      "-DFEATURE_COUNT=2",
+      "-DFIXED_POINT_SCALE=65536",
+      "-DWORKGROUP_SIZE=64"
+    ],
+    "constants": {
+      "PATCH_SIZE": 48,
+      "RAY_LENGTH": 120,
+      "FEATURE_COUNT": 2,
+      "FIXED_POINT_SCALE": 65536,
+      "WORKGROUP_SIZE": 64
+    },
+    "source_sha256": "bf04e1422cc4b1e8a826e5d1940cc0a2534fb68099a806dd345fb382ae59d54f",
+    "cuda_sha256": "8559e1b46c9d06a1c309d0e012db53295fcbbca503e1d3d52e77130d6c6e17b1",
+    "dependencies": {
+      "slang-cuda-prelude.h": "0933e126003eb76e2c12a9b5844402ff8102146121f89be8f905409450d4d354",
+      "SLANG_LICENSE.txt": "b738d98b7725414b534c119ac66126876b8cbd40aa8ae48210db190714b81670"
+    }
+  }
+}

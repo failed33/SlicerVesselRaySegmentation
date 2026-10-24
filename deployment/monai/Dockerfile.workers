@@ -20,6 +20,9 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group arg-
 FROM dependencies AS model-o-dependencies
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group model-o --python /usr/local/bin/python
 
+FROM dependencies AS model-o-cuda-dependencies
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --only-group model-o-cuda --python /usr/local/bin/python
+
 FROM python:3.12-slim AS worker
 WORKDIR /opt/monai
 ENV PYTHONPATH=/opt/worker ORT_DISABLE_TELEMETRY=1
@@ -113,3 +116,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends libegl1 libgomp
 COPY --from=model-o-dependencies /opt/monai/.venv /opt/monai/.venv
 COPY deployment/monai/monai_service/models/model_o.py /opt/worker/monai_service/models/model_o.py
 ENTRYPOINT ["/opt/monai/.venv/bin/python", "-m", "monai_service.models.model_o"]
+
+# Native CUDA needs neither Vulkan nor the separately compiled Dawn bundle.
+FROM worker AS model_o_cuda
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+COPY --from=model-o-cuda-dependencies /opt/monai/.venv /opt/monai/.venv
+COPY deployment/monai/monai_service/models/model_o.py /opt/worker/monai_service/models/model_o.py
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENTRYPOINT ["/opt/monai/.venv/bin/python", "-m", "monai_service.models.model_o", "--backend", "cuda"]

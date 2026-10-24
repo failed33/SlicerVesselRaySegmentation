@@ -420,7 +420,7 @@ def test_model_o_stages_polylines_and_executor_supplies_runtime_environment(
     executor = _script_executor(
         tmp_path,
         "import argparse,json,os\nfrom pathlib import Path\nimport SimpleITK as sitk\nimport fixture_marker\n"
-        "p=argparse.ArgumentParser()\nfor key in ('input','output','model','metadata','parameters','assets','queue-depth'): p.add_argument('--'+key)\n"
+        "p=argparse.ArgumentParser()\nfor key in ('input','output','model','metadata','parameters','assets','queue-depth','backend'): p.add_argument('--'+key)\n"
         "a=p.parse_args()\nassert fixture_marker.VALUE==42\n"
         f"assert json.loads(Path(a.parameters).read_text())=={_model_o_parameters().model_dump(mode='json')!r}\n"
         f"assert Path(a.assets)==Path({str(tmp_path)!r})\n"

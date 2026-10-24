@@ -22,12 +22,8 @@ class VesselRaySegmentation(ScriptedLoadableModule):
         self.parent.categories = ["Vascular Modeling"]
         self.parent.dependencies = ["Markups", "Segmentations", "SegmentEditor"]
         self.parent.contributors = ["Moritz Kirschner"]
-        self.parent.helpText = (
-            "Configure a MONAI Label endpoint, run ARG, filter and trim a copy of the vessel mask, "
-            "generate or edit native Markups centerlines, then run ModelO. "
-            "Automatic centerline generation requires SlicerVMTK."
-        )
-        self.parent.acknowledgementText = ""
+        self.parent.helpText = "Configure a MONAI Label endpoint, run initial segmentation, filter and trim a copy of the vessel mask, generate or edit native Markups centerlines, then run a refinement segmentation model. Requires SlicerVMTK for centerline generation."
+        self.parent.acknowledgementText = "Inspiration from nnunet-interactive"
 
 
 class VesselRaySegmentationWidget(ScriptedLoadableModuleWidget):
@@ -64,7 +60,11 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         matrix = np.eye(4)
         angle = np.pi / 5
         matrix[:3, :3] = np.array(
-            [[np.cos(angle), -np.sin(angle), 0], [np.sin(angle), np.cos(angle), 0], [0, 0, 1]]
+            [
+                [np.cos(angle), -np.sin(angle), 0],
+                [np.sin(angle), np.cos(angle), 0],
+                [0, 0, 1],
+            ]
         ) * [0.5, 1.0, 2.0]
         matrix[:3, 3] = [10.0, -20.0, 30.0]
         snapshot = VolumeSnapshot.capture(array, matrix, ("fixture", "CT fixture"))
@@ -106,7 +106,9 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
 
         _prediction, result = self._prediction()
         snapshot = VolumeSnapshot.capture(
-            result.mask, result.request.snapshot.geometry.ijk_to_ras(), ("mask", "mask fixture")
+            result.mask,
+            result.request.snapshot.geometry.ijk_to_ras(),
+            ("mask", "mask fixture"),
         )
         with TemporaryDirectory() as temporary:
             for suffix in (".nrrd", ".nii.gz"):
@@ -149,7 +151,11 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
     def test_model_profiles(self) -> None:
         models = {
             name: ModelDescriptor(name, name, "", (), profile)
-            for name, profile in [("arg", "image"), ("model_o", "polylines"), ("unknown", "other")]
+            for name, profile in [
+                ("arg", "image"),
+                ("model_o", "polylines"),
+                ("unknown", "other"),
+            ]
         }
         arg, model_o = VesselRaySegmentationLogic.select_models(models)
         self.assertEqual([model.name for model in arg], ["arg"])

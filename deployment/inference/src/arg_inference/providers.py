@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 import onnxruntime as ort
+from cuda_ort import initialize_cuda
 
 Device = Literal["auto", "cpu", "gpu", "npu"]
 
@@ -59,22 +60,6 @@ def provider_node_counts(session: ort.InferenceSession) -> dict[str, int]:
 
 
 @cache
-def _initialize_cuda() -> None:
-    ort.preload_dlls(directory="")
-    # The shipped 1.30 GPU wheel also exports the plugin ABI when its build-info
-    # flag is absent. In that case ORT's Python import hook skips registration.
-    if ", cuda-plugin-ep=1" not in ort.get_build_info():
-        if any(ep.ep_name == "CUDAExecutionProvider" for ep in ort.get_ep_devices()):
-            return
-        library = next(
-            (Path(ort.__file__).parent / "capi").glob("*onnxruntime_providers_cuda.*"), None
-        )
-        if library is None:
-            raise RuntimeError("The bundled ONNX Runtime CUDA provider library is missing")
-        ort.register_execution_provider_library("CUDAExecutionProvider", str(library))
-
-
-@cache
 def _initialize_plugin(package: str) -> None:
     """Register the native library exposed by an installed ORT plugin package."""
     plugin = import_module(package)
@@ -86,7 +71,7 @@ def _initialize_plugin(package: str) -> None:
 def _accelerator_initializers() -> list[Callable[[], None]]:
     initializers: list[Callable[[], None]] = []
     if "CUDAExecutionProvider" in ort.get_available_providers():
-        initializers.append(_initialize_cuda)
+        initializers.append(initialize_cuda)
     initializers.extend(
         partial(_initialize_plugin, package)
         for package in _PLUGIN_PACKAGES
