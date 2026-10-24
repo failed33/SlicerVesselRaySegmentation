@@ -281,6 +281,14 @@ HTTP checks real.
   asynchronous. Do not enable prepacking without repeated fresh-process
   numerical acceptance. The underlying provider cause remains unassigned.
 
+- Allowing software Vulkan does not select it. During the GitLab acceptance
+  migration, a runner exposing an Intel Vulkan device passed native Add but
+  returned zero ConvTranspose output in both stable and nightly Slicer. The
+  same artifacts passed with Mesa's software driver on Kubernetes. Shared CI
+  scripts now select Lavapipe through `VK_DRIVER_FILES` and assert the report's
+  software adapter flag. Keep physical-device acceptance separate; selecting
+  the software CI baseline does not fix or certify the Intel path.
+
 - Python metadata and runtime dependency support are different boundaries.
   Shared numerical code supports Python 3.14 in Pyodide, but the native/Label
   developer environments remain Python 3.12. Label's numpymaxflow needs NumPy 1,

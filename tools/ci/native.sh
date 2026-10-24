@@ -14,10 +14,11 @@ cmake --build build/native --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
 cmake --install build/native
 
 
-export ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1
+software_vulkan
 # Bundle and test relocated native libraries
 python tools/packaging/bundle_native.py --build build/native --output build/backend/native
 deployment/inference/.venv/bin/python tests/integration/backend/native_bundle.py build/backend/native/*.zip --output build/backend/native/report.json
+require_software_adapter build/backend/native/report.json
 
 
 # Bundle the isolated desktop Python runtime
