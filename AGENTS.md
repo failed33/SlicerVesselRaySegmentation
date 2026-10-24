@@ -27,6 +27,23 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Shader regeneration and numerical wheels do not need a large runner. Their
+  former large-only tags left cheap prerequisites queued behind cold C++ builds.
+  Keep those checks in the general amd64 pool; inference/service typing and
+  application/backend acceptance still need the large memory/storage budget.
+
+- A nested BuildKit bridge on the Docker executor fell back to public DNS and
+  could not resolve the private CI registry, although the job's Docker login
+  worked. Keep the builder on the job-local DinD host network. Cache export is
+  optional (`ignore-error=true`); image builds and real HTTP acceptance still
+  fail normally. The manual package job can select a runner tag to check executor
+  differences without duplicating every automatic pipeline.
+  Runner tags are fixed at pipeline creation: set `CONTAINER_RUNNER_TAG` when
+  creating a web/API pipeline. A variable supplied when playing a manual job
+  changed its script environment but did not reselect the runner.
+  Suppress duplicate branch pushes only; an open MR must not suppress explicit
+  web/API pipeline requests.
+
 - CI's uv cache and environment share the job filesystem. Let uv use its native
   linking mode; forcing copies duplicated the multi-gigabyte MONAI dependency
   set and added avoidable disk I/O. Kubernetes startup and cache restoration
