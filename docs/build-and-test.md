@@ -100,6 +100,12 @@ instead of copying them. GitLab uses Fastzip's fastest archive mode and reports
 transfer progress. Short acceptance jobs allow twenty minutes, including
 Kubernetes startup and cache restoration.
 
+Native and desktop CI use Mesa's Lavapipe software Vulkan driver explicitly,
+through `VK_DRIVER_FILES`, and require a software adapter in the resulting
+report. Allowing software adapters alone does not select one when a runner
+exposes a physical GPU. This baseline tests packaging and numerical integration;
+physical GPU acceptance remains a separate run with an explicit adapter check.
+
 BuildKit exports multi-stage container layers to the project's existing registry,
 using branch-specific `ci-cache-*` tags and the default branch as a read fallback.
 The extension project's daily registry cleanup removes matching tags older than
