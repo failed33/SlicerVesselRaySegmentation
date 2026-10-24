@@ -16,7 +16,8 @@ slicer_version=$(runtime_value build/slicer/runtime.log slicer_version)
 slicer_executable=$(runtime_value build/slicer/runtime.log slicer_executable)
 package_args=(--slicer-version "$slicer_version" --output build/desktop-package)
 if [[ "$mode" == runtime ]]; then
-  export ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1 VRS_RUNTIME_ALLOW_SOFTWARE=1
+  software_vulkan
+  export VRS_RUNTIME_ALLOW_SOFTWARE=1
   export VRS_RUNTIME_FIXTURES="$PWD/build/runtime-fixtures"
   export VRS_TEST_ENDPOINT_PYTHON="$PWD/build/workflow-endpoint/bin/python"
   UV_PROJECT_ENVIRONMENT="$PWD/build/workflow-endpoint" uv sync --project deployment/monai --frozen --group dev
@@ -31,3 +32,6 @@ python tools/packaging/build_scripted.py "${package_args[@]}"
 xvfb-run -a "$slicer_executable" --no-splash --no-main-window --testing \
   --additional-module-paths "$PACKAGE_ROOT/lib/Slicer-$slicer_version/qt-scripted-modules" \
   --python-script "$PWD/tests/integration/slicer/desktop.py" > build/desktop-package/slicer.log 2>&1
+if [[ "$mode" == runtime ]]; then
+  require_software_adapter build/desktop-package/desktop-runtime.json
+fi

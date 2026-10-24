@@ -13,3 +13,17 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 runtime_value() {
   python -c 'import json,sys; print(json.loads(open(sys.argv[1]).read().splitlines()[-1])[sys.argv[2]])' "$1" "$2"
 }
+
+software_vulkan() {
+  local drivers=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+  if [[ "${#drivers[@]}" != 1 || ! -f "${drivers[0]}" ]]; then
+    echo "Expected one installed Mesa software Vulkan driver" >&2
+    return 1
+  fi
+  export VK_DRIVER_FILES="${drivers[0]}"
+  export ORT_WEBGPU_EP_ALLOW_SOFTWARE_ADAPTER=1
+}
+
+require_software_adapter() {
+  python -c 'import json,sys; report=json.load(open(sys.argv[1])); assert report["adapter"]["software"], report["adapter"]' "$1"
+}
