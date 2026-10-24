@@ -70,13 +70,22 @@ Those three jobs cover the scripted application checks as well as compiled
 inference, so GitLab does not launch another copy of the basic application matrix.
 All acceptance jobs are required by `publish:github`.
 
-The jobs use Ubuntu 24.04 on `linux, large, amd64` runners, with three
-compiler workers and a two-hour build limit. GitHub retains two compiler workers.
+The jobs use Ubuntu 24.04. Shader and numerical-wheel checks use the general
+`linux, amd64` pool; memory-intensive jobs use `linux, large, amd64` runners.
+Native/WASM builds use three compiler workers and a two-hour build limit.
+GitHub retains two compiler workers.
 Container acceptance uses the
 runner's existing Unix-socket Docker-in-Docker service. Its temporary bind mounts
 remain under the shared project directory; `VRS_CONTAINER_HOST=docker` selects
 the service network address without changing installed-wheel HTTP acceptance.
 Both platforms invoke the same scripts under `tools/ci/`.
+The BuildKit builder shares the job-local DinD network so private registry DNS
+works on both executors. Cache export failures are nonfatal; image builds and
+HTTP acceptance remain required. The optional `acceptance:packages:manual` job
+repeats the package gate with a selected `CONTAINER_RUNNER_TAG` (default `large`)
+when checking a different executor. It can start independently of the automatic
+pipeline's prerequisites. Set the runner-tag variable when creating a web/API
+pipeline; variables supplied when playing a manual job do not reselect its runner.
 
 GitLab caches uv dependencies by lockfile and job role, and compiler results by
 platform and pinned runtime/toolchain. Native and WASM compiler caches are
