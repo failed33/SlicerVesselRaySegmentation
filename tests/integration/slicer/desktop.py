@@ -15,6 +15,11 @@ from module import test_hosted_workflow, test_installed_module
 
 report = Path(os.environ["TEST_REPORT"])
 try:
+    from slicer.packaging import load_requirements, pip_install
+
+    modules = list(Path(os.environ["PACKAGE_ROOT"]).glob("lib/Slicer-*/qt-scripted-modules"))
+    requirements = modules[0] / "VesselRaySegmentationLib/Resources/requirements.txt"
+    pip_install([str(req) for req in load_requirements(requirements)], show_progress=False)
     result = test_installed_module(os.environ["PACKAGE_ROOT"])
     endpoint_python = os.environ.get("VRS_TEST_ENDPOINT_PYTHON")
     if endpoint_python:

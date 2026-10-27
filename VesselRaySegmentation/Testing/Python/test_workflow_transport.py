@@ -9,6 +9,7 @@ from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
+import httpx
 import numpy as np
 import pytest
 from VesselRaySegmentationLib.monai import client, submission
@@ -104,7 +105,7 @@ def label_server():
     [
         ("patient-secret.nrrd", "ct.nrrd"),
         ("patient-secret.nii.gz", "ct.nii.gz"),
-        ('patient-secret.n"rrd', 'ct.n"rrd'),
+        ('patient-secret.n"rrd', "ct.n%22rrd"),
     ],
 )
 def test_actual_multipart_upload_and_response(label_server, tmp_path, filename, uploaded_filename):
@@ -203,12 +204,17 @@ def test_network_timeout_and_redirect_are_explicit(label_server, tmp_path):
     assert not any(path == "/redirected" for path, _headers, _body in label_server.requests)
 
 
-def test_https_uses_certificate_and_hostname_verification():
-    transport = client.MonaiClient(client.ConnectionSettings("https://example.invalid"))
-    handlers = vars(transport._opener)["handlers"]
-    handler = next(value for value in handlers if hasattr(value, "_context"))
-    assert handler._context.verify_mode == ssl.CERT_REQUIRED
-    assert handler._context.check_hostname is True
+def test_https_uses_certificate_and_hostname_verification(monkeypatch):
+    contexts = []
+
+    def request(_method, _url, **options):
+        contexts.append(options["verify"])
+        return httpx.Response(200, json={"models": {}})
+
+    monkeypatch.setattr(httpx, "request", request)
+    client.MonaiClient(client.ConnectionSettings("https://example.invalid")).info()
+    assert contexts[0].verify_mode == ssl.CERT_REQUIRED
+    assert contexts[0].check_hostname is True
 
 
 def test_missing_segmentation_multipart_is_rejected(label_server, tmp_path):
@@ -566,3 +572,67 @@ def test_endpoint_service_interpreter_ignores_embedded_slicer_python_environment
         ).models()
         assert models["arg-fixture"].input_profile == "image"
         assert models["model-o-fixture"].input_profile == "polylines"
+
+
+def test_large_upload_streams_and_closes_the_source(label_server, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "private-source.nrrd"
+    path.write_bytes(b"ct" * (2 * 1024 * 1024))
+    opened = []
+    original = Path.open
+
+    class Source:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024, "Upload attempted to buffer the complete CT"
+            return self.stream.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.stream.close()
+
+    def open_source(source, *args, **kwargs):
+        stream = original(source, *args, **kwargs)
+        if source == path:
+            opened.append(stream)
+            return Source(stream)
+        return stream
+
+    monkeypatch.setattr(Path, "open", open_source)
+    transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2))
+    transport.create_session(path)
+    assert opened and all(stream.closed for stream in opened)
+    assert len(label_server.requests[0][2]) > path.stat().st_size
+
+
+def test_failed_upload_closes_the_source(label_server, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "ct.nrrd"
+    path.write_bytes(b"submitted-ct")
+    opened = []
+    original = Path.open
+
+    def open_source(source, *args, **kwargs):
+        stream = original(source, *args, **kwargs)
+        if source == path:
+            opened.append(stream)
+        return stream
+
+    def fail(*_args, **_kwargs):
+        raise httpx.ReadTimeout("offline")
+
+    monkeypatch.setattr(Path, "open", open_source)
+    monkeypatch.setattr(httpx, "request", fail)
+    transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2))
+    with pytest.raises(client.MonaiClientError, match="timed out"):
+        transport.create_session(path)
+    assert opened and all(stream.closed for stream in opened)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import qt
 import slicer
 
@@ -178,6 +181,11 @@ class WorkflowPanel:
     def refresh(self) -> None:
         try:
             connection = self.connection()
+            if sys.platform != "emscripten":
+                from slicer.packaging import load_requirements, pip_ensure
+
+                requirements = Path(__file__).parent / "Resources/requirements.txt"
+                pip_ensure(load_requirements(requirements), requester="Vessel Ray Segmentation")
             self._busy(True, "Discovering endpoint models...")
             self.tasks.discover(connection, self._models_ready, self.failed)
         except Exception as error:
