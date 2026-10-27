@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import quote
 
-from .monai.client import ModelDescriptor, MonaiClientError, _decode_result, _multipart_upload
+from .monai.client import ModelDescriptor, MonaiClientError, Upload, _decode_result
 from .monai.submission import _read_result
 
 
@@ -42,6 +42,20 @@ def mask_token_input(widget):
     return observer, callback
 
 
+def _form_data(upload: Upload):
+    from js import Blob, FormData, Object
+    from pyodide.ffi import to_js
+
+    form = FormData.new()
+    if upload.parameters is not None:
+        form.append("params", upload.parameter_json())
+    if upload.path is not None:
+        data = to_js(upload.path.read_bytes())
+        options = to_js({"type": "application/octet-stream"}, dict_converter=Object.fromEntries)
+        form.append(upload.file_field, Blob.new(to_js([data]), options), upload.filename)
+    return form
+
+
 class BrowserClient:
     """Use fetch, because Pyodide cannot open Python sockets.
 
@@ -61,9 +75,7 @@ class BrowserClient:
         if self.connection.bearer_token:
             headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         if upload is not None:
-            content_type, _size, chunks = upload
-            headers["Content-Type"] = content_type
-            options["body"] = b"".join(chunks)
+            options["body"] = _form_data(upload)
         controller = AbortController.new()
         options.update(headers=headers, signal=controller.signal)
 
@@ -126,7 +138,7 @@ class BrowserSession:
             path = Path(temporary) / "ct.nrrd"
             self.snapshot.write_image(path)
             _kind, body = await self.client.request(
-                "/session/", "PUT", _multipart_upload(path, None, file_field="files")
+                "/session/", "PUT", Upload(path=path, file_field="files")
             )
         try:
             session_id = json.loads(body)["session_id"]
@@ -156,7 +168,7 @@ class BrowserSession:
                     f"/infer/{quote(request.model, safe='')}?output=all&session_id="
                     + quote(session_id, safe=""),
                     "POST",
-                    _multipart_upload(None, request.parameters),
+                    Upload(parameters=request.parameters),
                 )
                 response = _decode_result(kind, body)
                 with TemporaryDirectory(prefix="vessel-result-") as temporary:

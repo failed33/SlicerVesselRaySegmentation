@@ -1428,6 +1428,7 @@ arg-webgpu = [
     { name = "vessel-inference", extra = ["arg"], marker = "extra == 'group-19-monai-label-service-arg-webgpu' or (extra == 'extra-19-monai-label-service-arg' and extra == 'group-19-monai-label-service-arg-cuda') or (extra == 'extra-19-monai-label-service-arg' and extra == 'group-19-monai-label-service-model-o-cuda') or (extra == 'extra-19-monai-label-service-model-o' and extra == 'group-19-monai-label-service-arg-cuda') or (extra == 'extra-19-monai-label-service-model-o' and extra == 'group-19-monai-label-service-model-o-cuda') or (extra == 'group-19-monai-label-service-arg' and extra == 'group-19-monai-label-service-arg-cuda') or (extra == 'group-19-monai-label-service-arg' and extra == 'group-19-monai-label-service-model-o-cuda') or (extra == 'group-19-monai-label-service-arg-cuda' and extra == 'group-19-monai-label-service-dev') or (extra == 'group-19-monai-label-service-arg-cuda' and extra == 'group-19-monai-label-service-model-o') or (extra == 'group-19-monai-label-service-dev' and extra == 'group-19-monai-label-service-model-o-cuda') or (extra == 'group-19-monai-label-service-model-o' and extra == 'group-19-monai-label-service-model-o-cuda')" },
 ]
 dev = [
+    { name = "httpx" },
     { name = "kubernetes" },
     { name = "onnx" },
     { name = "pydantic" },
@@ -1499,6 +1500,7 @@ arg-webgpu = [
     { name = "vessel-inference", extras = ["arg"], directory = "../inference" },
 ]
 dev = [
+    { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "kubernetes", specifier = "==36.0.3" },
     { name = "onnx", specifier = "==1.23.1" },
     { name = "pydantic", specifier = "==2.13.5" },

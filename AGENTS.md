@@ -27,6 +27,14 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- MONAI desktop transport imports HTTPX only when making a desktop request.
+  SlicerWeb imports the shared route types but uses browser FormData and Fetch;
+  do not make HTTPX or other socket clients a browser import dependency. Desktop
+  dependency checks run on the UI thread at endpoint discovery through
+  `slicer.packaging.pip_ensure`, before background tasks start. Automated desktop
+  acceptance installs the declared requirements explicitly because `pip_ensure`
+  skips installation under Slicer's testing mode.
+
 - Shader regeneration and numerical wheels do not need a large runner. Their
   former large-only tags left cheap prerequisites queued behind cold C++ builds.
   Keep those checks in the general amd64 pool; inference/service typing and

@@ -1,22 +1,17 @@
-"""MONAI Label's standard HTTP and multipart transport using the Python stdlib."""
+"""Native MONAI Label routes with HTTPX uploads and standard MIME response parsing."""
 
 from __future__ import annotations
 
 import json
 import math
-import socket
 import ssl
-import uuid
-from collections.abc import Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from email import policy
-from email.message import EmailMessage
 from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 
 class MonaiClientError(RuntimeError):
@@ -32,12 +27,6 @@ class InferenceResponse:
     image: bytes = field(repr=False)
     filename: str
     metadata: dict[str, Any]
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
-        # Never resend a bearer token or the submitted CT to a redirected host.
-        return None
 
 
 @dataclass(frozen=True)
@@ -97,48 +86,30 @@ class SessionInput:
             raise ValueError("Provide a nonempty session_id")
 
 
-def _multipart_upload(
-    path: Path | None, parameters: dict[str, Any] | None, *, file_field: str = "file"
-) -> tuple[str, int, Iterator[bytes]]:
-    boundary = uuid.uuid4().hex
-    head = b""
-    if parameters is not None:
-        head = (
-            f'--{boundary}\r\nContent-Disposition: form-data; name="params"\r\n'
-            "Content-Type: application/json\r\n\r\n"
-            f"{json.dumps(parameters, allow_nan=False)}\r\n"
-        ).encode("utf-8")
-    if path is not None:
-        file_headers = EmailMessage(policy=policy.HTTP)
-        file_headers.add_header(
-            "Content-Disposition",
-            "form-data",
-            name=file_field,
-            filename="ct" + "".join(path.suffixes),
-        )
-        file_headers["Content-Type"] = "application/octet-stream"
-        head += f"--{boundary}\r\n".encode("ascii") + file_headers.as_bytes()
-    tail = f"\r\n--{boundary}--\r\n".encode("ascii")
+@dataclass(frozen=True)
+class Upload:
+    """Label's upload fields, independent of desktop or browser encoding."""
 
-    def chunks() -> Iterator[bytes]:
-        yield head
-        if path is not None:
-            with path.open("rb") as stream:
-                while chunk := stream.read(1024 * 1024):
-                    yield chunk
-        yield tail
+    path: Path | None = None
+    parameters: dict[str, Any] | None = None
+    file_field: str = "file"
 
-    return (
-        f"multipart/form-data; boundary={boundary}",
-        len(head) + (path.stat().st_size if path is not None else 0) + len(tail),
-        chunks(),
-    )
+    @property
+    def filename(self) -> str:
+        return "ct" + "".join(self.path.suffixes) if self.path is not None else ""
+
+    def parameter_json(self) -> str:
+        return json.dumps(self.parameters, allow_nan=False)
 
 
-def _inference_upload(
-    image: Path | SessionInput, parameters: dict[str, Any]
-) -> tuple[str, int, Iterator[bytes]]:
-    return _multipart_upload(None if isinstance(image, SessionInput) else image, parameters)
+def _upload_files(upload: Upload, resources: ExitStack) -> dict[str, Any]:
+    files: dict[str, Any] = {}
+    if upload.parameters is not None:
+        files["params"] = (None, upload.parameter_json(), "application/json")
+    if upload.path is not None:
+        stream = resources.enter_context(upload.path.open("rb"))
+        files[upload.file_field] = (upload.filename, stream, "application/octet-stream")
+    return files
 
 
 def _image_query(image: Path | SessionInput) -> dict[str, str]:
@@ -175,35 +146,45 @@ class MonaiClient:
 
     def __init__(self, connection: ConnectionSettings) -> None:
         self.connection = connection
-        self._opener = build_opener(
-            _NoRedirect(), HTTPSHandler(context=ssl.create_default_context())
-        )
 
-    def _open(self, request: Request) -> tuple[str, bytes]:
+    def _open(
+        self, path: str, method: str = "GET", upload: Upload | None = None
+    ) -> tuple[str, bytes]:
+        # Browser imports the route types but never loads a socket-based client.
+        import httpx
+
+        headers = {}
         if self.connection.bearer_token:
-            request.add_header("Authorization", f"Bearer {self.connection.bearer_token}")
+            headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         try:
-            with self._opener.open(request, timeout=self.connection.timeout_seconds) as response:
-                return response.headers.get("Content-Type", ""), response.read()
-        except HTTPError as exc:
-            message = _http_error_message(exc)
-            token = self.connection.bearer_token
-            raise MonaiClientError(
-                message.replace(token, "[redacted]") if token else message,
-                status_code=exc.code,
-            ) from exc
-        except (TimeoutError, socket.timeout) as exc:
-            raise MonaiClientError("MONAI Label request timed out") from exc
-        except URLError as exc:
-            if isinstance(exc.reason, (TimeoutError, socket.timeout)):
-                raise MonaiClientError("MONAI Label request timed out") from exc
-            raise MonaiClientError(f"Cannot reach MONAI Label: {exc.reason}") from exc
-        except OSError as exc:
-            raise MonaiClientError(f"MONAI Label connection failed: {exc}") from exc
+            with ExitStack() as resources:
+                files = _upload_files(upload, resources) if upload is not None else None
+                response = httpx.request(
+                    method,
+                    self.connection.endpoint.rstrip("/") + path,
+                    files=files,
+                    headers=headers,
+                    timeout=self.connection.timeout_seconds,
+                    follow_redirects=False,
+                    verify=ssl.create_default_context(),
+                )
+            if response.status_code >= 300:
+                message = _http_error_message(response.status_code, response.content[:8192])
+                token = self.connection.bearer_token
+                raise MonaiClientError(
+                    message.replace(token, "[redacted]") if token else message,
+                    status_code=response.status_code,
+                )
+            return response.headers.get("Content-Type", ""), response.content
+        except httpx.TimeoutException as error:
+            raise MonaiClientError("MONAI Label request timed out") from error
+        except httpx.RequestError as error:
+            raise MonaiClientError("Cannot reach MONAI Label: " + str(error)) from error
+        except OSError as error:
+            raise MonaiClientError("MONAI Label connection failed: " + str(error)) from error
 
     def info(self) -> dict[str, Any]:
-        request = Request(self.connection.endpoint.rstrip("/") + "/info/")
-        _content_type, body = self._open(request)
+        _content_type, body = self._open("/info/")
         try:
             info = json.loads(body)
         except ValueError as exc:
@@ -220,13 +201,9 @@ class MonaiClient:
         }
 
     def create_session(self, path: Path) -> str:
-        content_type, size, body = _multipart_upload(path, None, file_field="files")
-        request = Request(
-            self.connection.endpoint.rstrip("/") + "/session/", data=body, method="PUT"
+        _response_type, response = self._open(
+            "/session/", "PUT", Upload(path=path, file_field="files")
         )
-        request.add_header("Content-Type", content_type)
-        request.add_header("Content-Length", str(size))
-        _response_type, response = self._open(request)
         try:
             session_id = json.loads(response)["session_id"]
         except (ValueError, KeyError, TypeError) as error:
@@ -236,12 +213,8 @@ class MonaiClient:
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
-        request = Request(
-            self.connection.endpoint.rstrip("/")
-            + f"/session/{quote(session_id, safe='')}?update_ts=true"
-        )
         try:
-            self._open(request)
+            self._open(f"/session/{quote(session_id, safe='')}?update_ts=true")
         except MonaiClientError as error:
             if error.status_code == 404:
                 return False
@@ -249,12 +222,8 @@ class MonaiClient:
         return True
 
     def delete_session(self, session_id: str) -> None:
-        request = Request(
-            self.connection.endpoint.rstrip("/") + f"/session/{quote(session_id, safe='')}",
-            method="DELETE",
-        )
         try:
-            self._open(request)
+            self._open(f"/session/{quote(session_id, safe='')}", "DELETE")
         except MonaiClientError as error:
             if error.status_code != 404:
                 raise
@@ -262,30 +231,24 @@ class MonaiClient:
     def infer(
         self, path: Path | SessionInput, model: str, parameters: dict[str, Any]
     ) -> InferenceResponse:
-        content_type, size, body = _inference_upload(path, parameters)
         query = {"output": "all", **_image_query(path)}
-        url = (
-            self.connection.endpoint.rstrip("/")
-            + f"/infer/{quote(model, safe='')}?{urlencode(query)}"
-        )
-        request = Request(url, data=body, method="POST")
-        request.add_header("Content-Type", content_type)
-        request.add_header("Content-Length", str(size))
-        response_type, response_body = self._open(request)
+        route = f"/infer/{quote(model, safe='')}?{urlencode(query)}"
+        upload = Upload(None if isinstance(path, SessionInput) else path, parameters)
+        response_type, response_body = self._open(route, "POST", upload)
         return _decode_result(response_type, response_body)
 
 
-def _http_error_message(error: HTTPError) -> str:
+def _http_error_message(status: int, body: bytes) -> str:
     detail = ""
     try:
-        payload = json.loads(error.read(8192))
+        payload = json.loads(body)
         detail = str(payload.get("detail", "")) if isinstance(payload, dict) else ""
     except (OSError, ValueError):
         pass
-    if error.code == 404:
+    if status == 404:
         prefix = "MONAI Label model or endpoint is unavailable (HTTP 404)"
-    elif error.code in {401, 403}:
-        prefix = f"MONAI Label rejected access (HTTP {error.code})"
+    elif status in {401, 403}:
+        prefix = f"MONAI Label rejected access (HTTP {status})"
     else:
-        prefix = f"MONAI Label inference failed (HTTP {error.code})"
+        prefix = f"MONAI Label inference failed (HTTP {status})"
     return f"{prefix}: {detail}" if detail else prefix

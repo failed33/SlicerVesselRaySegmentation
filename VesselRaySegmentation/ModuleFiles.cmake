@@ -13,4 +13,5 @@ set(MODULE_PYTHON_SCRIPTS
     VesselRaySegmentationLib/scene.py
     VesselRaySegmentationLib/tasks.py
     VesselRaySegmentationLib/widgets.py)
-set(MODULE_PYTHON_RESOURCES Resources/Icons/${MODULE_NAME}.png)
+set(MODULE_PYTHON_RESOURCES Resources/Icons/${MODULE_NAME}.png
+                            VesselRaySegmentationLib/Resources/requirements.txt)

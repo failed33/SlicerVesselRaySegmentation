@@ -16,7 +16,11 @@ class ScriptedPackageTest(unittest.TestCase):
             with zipfile.ZipFile(archive) as package:
                 files = {item.filename for item in package.infolist() if not item.is_dir()}
             module_root = Path(__file__).resolve().parents[2] / "VesselRaySegmentation"
-            declared = {"VesselRaySegmentation.py", "Resources/Icons/VesselRaySegmentation.png"}
+            declared = {
+                "VesselRaySegmentation.py",
+                "Resources/Icons/VesselRaySegmentation.png",
+                "VesselRaySegmentationLib/Resources/requirements.txt",
+            }
             declared.update(
                 str(path.relative_to(module_root))
                 for path in (module_root / "VesselRaySegmentationLib").rglob("*.py")

@@ -104,6 +104,12 @@ path remains available; automatic extraction is explicitly unavailable until
 that dependency is installed. Browser inference uses fetch and requires an
 endpoint accessible over HTTPS with CORS permission for the application's origin.
 Bearer tokens stay in the current widget and are not saved into scenes or settings.
+Desktop MONAI requests use HTTPX. At first endpoint discovery, Slicer's native
+package manager checks `VesselRaySegmentationLib/Resources/requirements.txt`
+and offers to install missing dependencies. SlicerWeb uses browser Fetch and
+FormData and does not load HTTPX. Both transports retain native Label image
+sessions and reject redirects.
+
 
 ## Development and publication
 
