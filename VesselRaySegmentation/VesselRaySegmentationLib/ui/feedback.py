@@ -22,22 +22,17 @@ PHASES = {
 }
 MIB = 2**20
 
-# Receives a callback that takes whether the endpoint answered.
-CheckEndpoint = Callable[[Callable[[bool], None]], None]
-
 
 class RequestFeedback:
     """Status line, activity bar, elapsed time and the discard action.
 
     Transports report phases and byte counts only. Render measured transfer
-    progress or an indeterminate activity indicator. The owner supplies the
-    endpoint check, independently of how the request is executed.
+    progress or an indeterminate activity indicator. The owner supplies endpoint
+    check results independently of how the request is executed.
     """
 
-    def __init__(self, check_endpoint: CheckEndpoint, discard: Callable[[], None]) -> None:
-        self.check_endpoint = check_endpoint
+    def __init__(self, discard: Callable[[], None]) -> None:
         self.discard = discard
-        self.request = 0  # Identifies the current request for late endpoint checks.
         self.started: float | None = None
         self.last_check: tuple[bool, datetime] | None = None
         self.widget = qt.QWidget()
@@ -59,9 +54,6 @@ class RequestFeedback:
         self.clock = qt.QTimer()
         self.clock.setInterval(1000)
         self.clock.connect("timeout()", self._tick)
-        self.check_timer = qt.QTimer()
-        self.check_timer.setInterval(15000)
-        self.check_timer.connect("timeout()", self._check)
 
     @staticmethod
     def _label(text: str):
@@ -71,7 +63,6 @@ class RequestFeedback:
         return label
 
     def begin(self, text: str) -> None:
-        self.request += 1
         self.started = time.monotonic()
         self.last_check = None
         self.discard_button.enabled = True
@@ -90,10 +81,6 @@ class RequestFeedback:
     def show(self, update: RequestProgress) -> None:
         if self.started is None:
             return
-        if update.phase is RequestPhase.WAITING:
-            self.check_timer.start()
-        else:
-            self.check_timer.stop()
         if not update.total_bytes:
             self.step(PHASES[update.phase])
             return
@@ -110,15 +97,12 @@ class RequestFeedback:
 
     def discarding(self, text: str) -> None:
         """Keep the bar running: the request still holds the controls until it settles."""
-        self.check_timer.stop()
         self.discard_button.enabled = False
         self.step(text)
 
     def finish(self, text: str) -> None:
-        self.request += 1
         self.started = None
         self.clock.stop()
-        self.check_timer.stop()
         self.discard_button.enabled = False
         self.progress.visible = False
         self.detail.visible = False
@@ -134,7 +118,6 @@ class RequestFeedback:
 
     def stop(self) -> None:
         self.clock.stop()
-        self.check_timer.stop()
 
     def _discard(self) -> None:
         self.discard()
@@ -156,14 +139,9 @@ class RequestFeedback:
         self.detail.text = text
         self.detail.visible = True
 
-    def _check(self) -> None:
-        request = self.request
-        self.check_endpoint(lambda reachable: self._checked(request, reachable))
-
-    def _checked(self, request: int, reachable: bool) -> None:
-        if request == self.request:
-            self.last_check = (reachable, datetime.now())
-            self._tick()
+    def checked(self, reachable: bool) -> None:
+        self.last_check = (reachable, datetime.now())
+        self._tick()
 
     def _reveal(self) -> None:
         """Scroll the module panel so a request started further down shows its feedback."""

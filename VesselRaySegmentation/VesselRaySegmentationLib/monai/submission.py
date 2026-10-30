@@ -84,11 +84,15 @@ def run_inference(
 ) -> InferenceResult:
     """Perform one native Label request without touching the live MRML scene."""
     report(RequestProgress(RequestPhase.VALIDATING))
-    client = MonaiClient(request.connection, report)
-    model = client.models().get(request.model)
-    if model is None or model.input_profile != request.input_profile:
-        raise MonaiClientError("Model input requirements changed; refresh models before inference")
-    with TemporaryDirectory(prefix="vessel-monai-") as temporary:
+    with (
+        MonaiClient(request.connection, report) as client,
+        TemporaryDirectory(prefix="vessel-monai-") as temporary,
+    ):
+        model = client.models().get(request.model)
+        if model is None or model.input_profile != request.input_profile:
+            raise MonaiClientError(
+                "Model input requirements changed; refresh models before inference"
+            )
         directory = Path(temporary)
         if request.session is not None:
             if (
@@ -96,7 +100,7 @@ def run_inference(
                 or request.session.connection != request.connection
             ):
                 raise ValueError("MONAI image session does not match the submitted CT and endpoint")
-            with request.session.use(report) as (client, image):
+            with request.session.use(client) as image:
                 response = client.infer(image, request.model, request.parameters)
         else:
             image = directory / "ct.nrrd"

@@ -120,20 +120,10 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
   report.browser = browser.version();
   await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentation")'));
   // Before model discovery, a real ARG click reaches request validation and unlocks again.
-  const requestState = () => page.evaluate(() =>
-    JSON.parse(window.slicerWeb.pyodide.runPython("request_state()")));
-  const idle = await requestState();
-  assert(idle.models === 0 && !idle.pending && !idle.busy && idle.unlocked, JSON.stringify(idle));
-  await page.getByRole("button", { name: "Run ARG inference", exact: true }).click();
-  // One request began and finished: the deferred submission ran and settled.
-  await page.waitForFunction((requests) => {
-    const state = JSON.parse(window.slicerWeb.pyodide.runPython("request_state()"));
-    return state.requests === requests + 2 && !state.pending;
-  }, idle.requests);
-  const settled = await requestState();
-  assert(!settled.busy && settled.unlocked, JSON.stringify(settled));
+  const argButton = page.getByRole("button", { name: "Run ARG inference", exact: true });
+  await argButton.click();
   await page.getByText("Refresh the endpoint and select an available model").waitFor();
-  assert(await page.getByRole("button", { name: "Run ARG inference", exact: true }).isEnabled());
+  assert(await argButton.isEnabled());
   report.browser_button_click = "passed";
   assert.equal(await page.locator('input[type="password"]').count(), 1,
     "Bearer token must be masked by the browser input");

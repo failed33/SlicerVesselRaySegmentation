@@ -8,6 +8,7 @@ import pytest
 from VesselRaySegmentationLib.monai import sessions
 from VesselRaySegmentationLib.monai.client import ConnectionSettings, MonaiClientError
 from VesselRaySegmentationLib.monai.images import VolumeSnapshot
+from VesselRaySegmentationLib.monai.progress import ignore_progress
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def session(monkeypatch):
     class Client:
         def __init__(self, connection):
             self.connection = connection
+            self.report = ignore_progress
 
         def create_session(self, path):
             assert path.read_bytes() == b"captured-ct"
@@ -39,13 +41,14 @@ def session(monkeypatch):
     monkeypatch.setattr(sessions, "MonaiClient", Client)
     monkeypatch.setattr(VolumeSnapshot, "write_image", write_image)
     snapshot = VolumeSnapshot.capture(np.zeros((2, 3, 4)), np.eye(4), ("ct-id", "CT"))
+    state.client = Client(ConnectionSettings())
     return sessions.VolumeSession(ConnectionSettings(), snapshot), state
 
 
 def test_unchanged_volume_is_serialized_and_uploaded_once(session):
     owner, state = session
     for _ in range(3):
-        with owner.use() as (_client, image):
+        with owner.use(state.client) as image:
             assert image.session_id == "session-1"
     assert state.uploads == state.writes == 1
     owner.close()
@@ -55,21 +58,21 @@ def test_unchanged_volume_is_serialized_and_uploaded_once(session):
 
 def test_expired_session_reuploads_original_snapshot(session):
     owner, state = session
-    with owner.use():
+    with owner.use(state.client):
         pass
     state.current = None
-    with owner.use() as (_client, image):
+    with owner.use(state.client) as image:
         assert image.session_id == "session-2"
     assert state.uploads == state.writes == 2
 
 
 def test_access_failure_does_not_reupload_or_hide_the_error(session):
     owner, state = session
-    with owner.use():
+    with owner.use(state.client):
         pass
     state.lookup_error = MonaiClientError("Access denied", status_code=403)
     with pytest.raises(MonaiClientError, match="Access denied"):
-        with owner.use():
+        with owner.use(state.client):
             pytest.fail("Inference started despite failed session lookup")
     assert state.uploads == 1
 
@@ -82,7 +85,7 @@ def test_access_failure_does_not_reupload_or_hide_the_error(session):
 def test_uncertain_remote_completion_leaves_upload_to_native_expiry(session, error):
     owner, state = session
     with pytest.raises(type(error), match=str(error)):
-        with owner.use():
+        with owner.use(state.client):
             raise error
     owner.close()
     assert state.deleted == []
@@ -91,9 +94,9 @@ def test_uncertain_remote_completion_leaves_upload_to_native_expiry(session, err
 def test_later_success_does_not_certify_an_earlier_failed_request_completed(session):
     owner, state = session
     with pytest.raises(MonaiClientError, match="Gateway failure"):
-        with owner.use():
+        with owner.use(state.client):
             raise MonaiClientError("Gateway failure", status_code=504)
-    with owner.use() as (_client, image):
+    with owner.use(state.client) as image:
         assert image.session_id == "session-1"
     owner.close()
     assert state.uploads == 1 and state.deleted == []
@@ -102,10 +105,10 @@ def test_later_success_does_not_certify_an_earlier_failed_request_completed(sess
 def test_recreated_session_has_independent_completion_ownership(session):
     owner, state = session
     with pytest.raises(MonaiClientError, match="Gateway failure"):
-        with owner.use():
+        with owner.use(state.client):
             raise MonaiClientError("Gateway failure", status_code=504)
     state.current = None
-    with owner.use() as (_client, image):
+    with owner.use(state.client) as image:
         assert image.session_id == "session-2"
     owner.close()
     assert state.deleted == ["session-2"]
@@ -113,11 +116,11 @@ def test_recreated_session_has_independent_completion_ownership(session):
 
 def test_lookup_failure_does_not_make_an_unused_session_uncertain(session):
     owner, state = session
-    with owner.use():
+    with owner.use(state.client):
         pass
     state.lookup_error = MonaiClientError("Gateway failure", status_code=504)
     with pytest.raises(MonaiClientError, match="Gateway failure"):
-        with owner.use():
+        with owner.use(state.client):
             pytest.fail("Inference started despite failed session lookup")
     owner.close()
     assert state.deleted == ["session-1"]
@@ -141,7 +144,7 @@ def test_close_during_upload_does_not_start_inference(session, monkeypatch):
 
     def infer():
         try:
-            with owner.use():
+            with owner.use(state.client):
                 submitted.append(True)
         except MonaiClientError as error:
             errors.append(str(error))
@@ -172,14 +175,14 @@ def test_close_rejects_a_request_waiting_for_the_active_session(session, monkeyp
         deleted.set()
 
     def active_request():
-        with owner.use():
+        with owner.use(state.client):
             active.set()
             assert release.wait(2)
 
     def waiting_request():
         waiting.set()
         try:
-            with owner.use():
+            with owner.use(state.client):
                 submitted.append(True)
         except MonaiClientError as error:
             errors.append(str(error))
@@ -206,7 +209,7 @@ def test_close_waits_for_active_request_before_deleting(session):
     entered, release = threading.Event(), threading.Event()
 
     def infer():
-        with owner.use():
+        with owner.use(state.client):
             entered.set()
             assert release.wait(2)
 
@@ -222,5 +225,5 @@ def test_close_waits_for_active_request_before_deleting(session):
     assert not worker.is_alive() and not cleanup.is_alive()
     assert state.deleted == ["session-1"]
     with pytest.raises(MonaiClientError, match="closed"):
-        with owner.use():
+        with owner.use(state.client):
             pass

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,7 @@ import slicer
 
 from . import scene
 from .monai.client import ConnectionSettings
+from .monai.progress import RequestPhase, RequestProgress
 from .tasks import TaskController
 from .ui.feedback import RequestFeedback
 
@@ -25,6 +25,10 @@ class WorkflowPanel:
         self.tasks = TaskController()
         # A separate controller checks the endpoint while the request controller waits.
         self.probe = TaskController()
+        self.check_timer = qt.QTimer()
+        self.check_timer.setInterval(15000)
+        self.check_timer.connect("timeout()", self._check_endpoint)
+        self.check_generation = 0
         self.pending = False
         self.running_button: tuple[Any, str] | None = None
         self.models = {}
@@ -33,7 +37,7 @@ class WorkflowPanel:
         self.controls = []
         self._setup(layout)
         # Beneath the setup and above every step that sends a request.
-        self.feedback = RequestFeedback(self._check_endpoint, self.tasks.cancel)
+        self.feedback = RequestFeedback(self._discard)
         self.feedback.notify("Configure the endpoint, then refresh its available models.")
         layout.addWidget(self.feedback.widget)
         self._setup_arg(layout)
@@ -46,7 +50,7 @@ class WorkflowPanel:
         )
 
     def _scene_closing(self, _caller, _event) -> None:
-        self.tasks.cancel()
+        self._discard()
         self.tasks.release_session()
         self.logic.cleanup()
         if self.pending:
@@ -173,6 +177,7 @@ class WorkflowPanel:
         self.feedback.begin(text)
 
     def _end(self, text: str) -> None:
+        self._stop_checks()
         self.pending = False
         for control in self.controls:
             control.enabled = True
@@ -182,12 +187,41 @@ class WorkflowPanel:
             self.running_button = None
         self.feedback.finish(text)
 
-    def _check_endpoint(self, report: Callable[[bool], None]) -> None:
-        if self.probe.busy or self.probe.disposed:
+    def _progress(self, update: RequestProgress) -> None:
+        if update.phase is RequestPhase.WAITING:
+            if not self.check_timer.active:
+                self.check_timer.start()
+        else:
+            self._stop_checks()
+        self.feedback.show(update)
+
+    def _stop_checks(self) -> None:
+        self.check_generation += 1
+        self.check_timer.stop()
+        self.probe.cancel()
+
+    def _discard(self) -> None:
+        self._stop_checks()
+        self.tasks.cancel()
+
+    def _check_endpoint(self) -> None:
+        if (
+            not self.pending
+            or not self.check_timer.active
+            or self.probe.busy
+            or self.probe.disposed
+        ):
             return  # The previous check has not settled; skip this interval.
+        generation = self.check_generation
         self.probe.check_endpoint(
-            self.connection(), lambda _info: report(True), lambda _error: report(False)
+            self.connection(),
+            lambda _info: self._endpoint_checked(generation, True),
+            lambda _error: self._endpoint_checked(generation, False),
         )
+
+    def _endpoint_checked(self, generation: int, reachable: bool) -> None:
+        if self.pending and self.check_timer.active and generation == self.check_generation:
+            self.feedback.checked(reachable)
 
     def failed(self, error) -> None:
         self._end(str(error))
@@ -246,7 +280,7 @@ class WorkflowPanel:
                 self.connection(),
                 self.centerline.currentNode(),
             )
-            self.tasks.infer(request, self._inference_ready, self.failed, self.feedback.show)
+            self.tasks.infer(request, self._inference_ready, self.failed, self._progress)
         except Exception as error:
             self.failed(error)
 
@@ -262,6 +296,7 @@ class WorkflowPanel:
         )
 
     def _inference_ready(self, result) -> None:
+        self._stop_checks()
         self.feedback.step("Importing result")
         qt.QTimer.singleShot(ACKNOWLEDGE_DELAY_MS, lambda: self._import_result(result))
 
@@ -320,6 +355,7 @@ class WorkflowPanel:
 
     def cleanup(self) -> None:
         slicer.mrmlScene.RemoveObserver(self.scene_observer)
+        self._stop_checks()
         self.feedback.stop()
         self.tasks.dispose()
         self.probe.dispose()

@@ -33,11 +33,20 @@ the root tool environment intentionally has no application runtime dependencies.
   Keep transport callbacks as phase/measurement data; user-facing wording belongs
   to the feedback view. Schedule checks with Qt timers and the existing request
   controller rather than separate desktop/browser transport monitor loops.
+  The workflow panel owns probe scheduling and rejects late check results; the
+  feedback view only renders them. Desktop inference owns one context-managed
+  HTTPX client across discovery, upload/session lookup and inference. Pass that
+  client into the session owner instead of constructing another transport there.
   Fetch exposes no upload-byte callbacks, and SlicerWeb's progress bar has no
   animated busy state, so its elapsed counter supplies activity feedback.
   SlicerWeb's QLabel interprets text containing angle brackets as HTML, and its
   setTextFormat is currently a stub. Deferred submission acceptance must pump
   Qt before waiting on a server-side barrier.
+
+- Run the full `VesselRaySegmentation/Testing/Python` suite after changing the
+  MONAI client/session contract. A transport-only run missed stale session test
+  doubles that rejected the progress callback, leaving fourteen tests failing.
+  Keep the session ownership and uncertain-completion tests in that validation.
 
 - MONAI desktop transport imports HTTPX only when making a desktop request.
   SlicerWeb imports the shared route types but uses browser FormData and Fetch;

@@ -35,6 +35,7 @@ def multipart(image: bytes, *, filename="mask.nrrd", metadata=None) -> bytes:
 def label_server():
     state = SimpleNamespace(
         requests=[],
+        connections=[],
         models={"smoke-test": {"config": {"input_profile": "image"}}},
         status=200,
         delay=0.0,
@@ -49,7 +50,10 @@ def label_server():
     )
 
     class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def do_GET(self):
+            state.connections.append(self.client_address)
             state.requests.append((self.path, self.headers, b""))
             session_id = self.path.split("/")[-1].split("?")[0]
             is_session = self.path.startswith("/session/")
@@ -59,28 +63,35 @@ def label_server():
                 else state.info_status
             )
             self.send_header("Content-Type", "application/json")
+            body = json.dumps({"models": state.models}).encode()
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(json.dumps({"models": state.models}).encode())
+            self.wfile.write(body)
 
         def do_PUT(self):
+            state.connections.append(self.client_address)
             body = self.rfile.read(int(self.headers["Content-Length"]))
             state.requests.append((self.path, self.headers, body))
             session_id = f"session-{len(state.sessions) + 1}"
             state.sessions[session_id] = body
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            body = json.dumps({"session_id": session_id}).encode()
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(json.dumps({"session_id": session_id}).encode())
+            self.wfile.write(body)
 
         def do_DELETE(self):
             session_id = self.path.split("/")[-1]
             state.deleted_sessions.append(session_id)
             state.sessions.pop(session_id, None)
             self.send_response(200)
+            self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.write(b"{}")
 
         def do_POST(self):
+            state.connections.append(self.client_address)
             body = self.rfile.read(int(self.headers["Content-Length"]))
             state.requests.append((self.path, self.headers, body))
             state.started.set()
@@ -89,6 +100,7 @@ def label_server():
             time.sleep(state.delay)
             self.send_response(state.status)
             self.send_header("Content-Type", state.content_type)
+            self.send_header("Content-Length", str(len(state.body)))
             if state.status == 302:
                 self.send_header("Location", "/redirected")
             self.end_headers()
@@ -464,7 +476,7 @@ def test_native_session_owner_reuses_real_upload_and_deletes_after_success(
     owner = VolumeSession(connection, snapshot)
     identifiers = []
     for _ in range(2):
-        with owner.use() as (transport, image):
+        with client.MonaiClient(connection) as transport, owner.use(transport) as image:
             identifiers.append(image.session_id)
             response = transport.infer(image, "arg-fixture", {})
             assert response.metadata["test_only"] is True
@@ -716,3 +728,58 @@ def test_detached_snapshot_io_preserves_oblique_geometry_and_rejects_wrong_grid(
     sitk.WriteImage(image, str(path))
     with pytest.raises(ValueError, match="physical geometry differs"):
         snapshot.read_mask(path)
+
+
+@pytest.mark.parametrize("outcome", ["success", "validation", "upload", "inference"])
+def test_inference_reuses_and_closes_http_client(label_server, tmp_path, monkeypatch, outcome):
+    from VesselRaySegmentationLib.monai.sessions import VolumeSession
+
+    snapshot = VolumeSnapshot.capture(np.ones((3, 4, 5), np.uint8), np.eye(4), ("id", "CT"))
+    path = tmp_path / "result.nrrd"
+    snapshot.write_image(path)
+    label_server.body = multipart(path.read_bytes())
+    connection = client.ConnectionSettings(label_server.endpoint, 2)
+    owner = VolumeSession(connection, snapshot)
+    request = submission.InferenceRequest(
+        snapshot, connection, "smoke-test", {}, "image", session=owner
+    )
+    clients = []
+    original_client, original_send = httpx.Client, httpx.Client.send
+
+    def create_client(**options):
+        transport = original_client(**options)
+        clients.append(transport)
+        return transport
+
+    def send(transport, outgoing, **options):
+        if outcome == "upload" and outgoing.method == "PUT":
+            raise httpx.WriteError("upload interrupted", request=outgoing)
+        return original_send(transport, outgoing, **options)
+
+    monkeypatch.setattr(httpx, "Client", create_client)
+    monkeypatch.setattr(original_client, "send", send)
+    if outcome == "validation":
+        label_server.models = {}
+    elif outcome == "inference":
+        label_server.status = 503
+    try:
+        if outcome == "success":
+            result = submission.run_inference(request)
+            np.testing.assert_array_equal(result.mask, snapshot.array)
+            assert len(label_server.connections) == 3
+            assert len(set(label_server.connections)) == 1
+        else:
+            with pytest.raises(client.MonaiClientError):
+                submission.run_inference(request)
+        assert len(clients) == 1 and clients[0].is_closed
+        assert label_server.deleted_sessions == []
+        if outcome == "success":
+            updates = []
+            submission.run_inference(request, updates.append)
+            assert len(clients) == 2 and all(transport.is_closed for transport in clients)
+            assert len(set(label_server.connections[3:])) == 1
+            assert sum(path == "/session/" for path, _headers, _body in label_server.requests) == 1
+            assert RequestPhase.SESSION_READY in [update.phase for update in updates]
+            assert all(update.total_bytes == 0 for update in updates)
+    finally:
+        owner.close()

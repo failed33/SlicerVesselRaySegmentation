@@ -6,7 +6,6 @@ import asyncio
 import queue
 import sys
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -27,8 +26,7 @@ class TaskController:
         self.disposed = False
         self.browser_session: BrowserSession | None = None
         self.pending: asyncio.Future[None] | None = None
-        self.messages: queue.Queue[tuple[Any, Exception | None]] = queue.Queue()
-        self.updates: queue.Queue[RequestProgress] = queue.Queue()
+        self.messages: queue.Queue[RequestProgress | tuple[Any, Exception | None]] = queue.Queue()
         self.on_progress: ReportProgress = ignore_progress
         self.callbacks: tuple[Callable[[Any], None], Callable[[Exception], None]] | None = None
         self.timer: Any = None  # PythonQt and SlicerWeb supply the timer at runtime.
@@ -47,8 +45,6 @@ class TaskController:
     ) -> None:
         if self.busy or self.disposed:
             raise RuntimeError("An endpoint request is already running")
-        while not self.updates.empty():
-            self.updates.get_nowait()
         self.busy, self.cancelled = True, False
         self.callbacks = (on_done, on_failed)
         if self.browser:
@@ -72,21 +68,17 @@ class TaskController:
         threading.Thread(target=run, name="vessel-inference", daemon=True).start()
 
     def _poll(self) -> None:
-        # Yield the GIL, as Slicer's SimpleFilters does for Python workers.
-        time.sleep(0.001)
-        for _ in range(16):
+        while True:
             try:
-                self._progress(self.updates.get_nowait())
+                message = self.messages.get_nowait()
             except queue.Empty:
-                break
-        try:
-            result, error = self.messages.get_nowait()
-        except queue.Empty:
-            return
-        self.timer.stop()
-        while not self.updates.empty():
-            self._progress(self.updates.get_nowait())
-        self._deliver(result, error)
+                return
+            if isinstance(message, RequestProgress):
+                self._progress(message)
+            else:
+                self.timer.stop()
+                self._deliver(*message)
+                return
 
     def _progress(self, update: RequestProgress) -> None:
         if not self.cancelled and not self.disposed:
@@ -96,7 +88,7 @@ class TaskController:
         if self.browser:
             self._progress(update)
         else:
-            self.updates.put(update)
+            self.messages.put(update)
 
     def _deliver(self, result, error) -> None:
         self.busy = False

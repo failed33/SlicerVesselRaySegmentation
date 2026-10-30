@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 
 from .client import ConnectionSettings, MonaiClient, MonaiClientError, SessionInput
 from .images import VolumeSnapshot
-from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress
+from .progress import RequestPhase, RequestProgress
 
 logger = logging.getLogger(__name__)
 
@@ -40,20 +40,17 @@ class VolumeSession:
         return self._session_id
 
     @contextmanager
-    def use(
-        self, report: ReportProgress = ignore_progress
-    ) -> Iterator[tuple[MonaiClient, SessionInput]]:
+    def use(self, client: MonaiClient) -> Iterator[SessionInput]:
         """Serialize access and retain the upload until its request has finished."""
         with self._lock:
             if self._closed.is_set():
                 raise MonaiClientError("MONAI image session is closed")
-            client = MonaiClient(self.connection, report)
-            report(RequestProgress(RequestPhase.CHECKING_SESSION))
+            client.report(RequestProgress(RequestPhase.CHECKING_SESSION))
             session_id = self._ensure_session(client)
             if self._closed.is_set():
                 raise MonaiClientError("MONAI image session is closed")
             try:
-                yield client, SessionInput(session_id)
+                yield SessionInput(session_id)
             except BaseException:
                 # Even an HTTP error may come from a gateway while native work
                 # continues. Only successful requests prove remote completion.

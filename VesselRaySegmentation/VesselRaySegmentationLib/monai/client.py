@@ -10,10 +10,14 @@ from dataclasses import dataclass, field
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode, urlsplit
 
 from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress, upload_chunks
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class MonaiClientError(RuntimeError):
@@ -161,6 +165,34 @@ class MonaiClient:
     ) -> None:
         self.connection = connection
         self.report = report
+        self._transport: httpx.Client | None = None
+
+    def _create_transport(self) -> httpx.Client:
+        import httpx
+
+        headers = {}
+        if self.connection.bearer_token:
+            headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
+        return httpx.Client(
+            headers=headers,
+            timeout=self.connection.timeout_seconds,
+            follow_redirects=False,
+            verify=ssl.create_default_context(),
+        )
+
+    def __enter__(self) -> MonaiClient:
+        self._transport = self._create_transport()
+        return self
+
+    def __exit__(
+        self,
+        _kind: type[BaseException] | None,
+        _error: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        if self._transport is not None:
+            self._transport.close()
+            self._transport = None
 
     def _open(
         self, path: str, method: str = "GET", upload: Upload | None = None
@@ -168,19 +200,9 @@ class MonaiClient:
         # Browser imports the route types but never loads a socket-based client.
         import httpx
 
-        headers = {}
-        if self.connection.bearer_token:
-            headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         try:
             with ExitStack() as resources:
-                transport = resources.enter_context(
-                    httpx.Client(
-                        headers=headers,
-                        timeout=self.connection.timeout_seconds,
-                        follow_redirects=False,
-                        verify=ssl.create_default_context(),
-                    )
-                )
+                transport = self._transport or resources.enter_context(self._create_transport())
                 files = _upload_files(upload, resources) if upload is not None else None
                 request = transport.build_request(
                     method, self.connection.endpoint.rstrip("/") + path, files=files
