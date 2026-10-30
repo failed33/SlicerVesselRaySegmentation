@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 
 from .client import ConnectionSettings, MonaiClient, MonaiClientError, SessionInput
 from .images import VolumeSnapshot
-from .progress import ReportProgress, RequestProgress, ignore_progress
+from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,12 @@ class VolumeSession:
 
     def _ensure_session(self, client: MonaiClient) -> str:
         if self._session_id is not None and client.session_exists(self._session_id):
-            client.report(RequestProgress("Existing image session confirmed. Reusing uploaded CT."))
+            client.report(RequestProgress(RequestPhase.SESSION_READY))
             return self._session_id
         self._session_id = None
         with TemporaryDirectory(prefix="vessel-monai-upload-") as temporary:
             path = Path(temporary) / "ct.nrrd"
-            client.report(RequestProgress("Preparing CT file for upload..."))
+            client.report(RequestProgress(RequestPhase.PREPARING))
             self.snapshot.write_image(path)
             self._session_id = client.create_session(path)
         self._uncertain = False
@@ -48,7 +48,7 @@ class VolumeSession:
             if self._closed.is_set():
                 raise MonaiClientError("MONAI image session is closed")
             client = MonaiClient(self.connection, report)
-            report(RequestProgress("Checking image session..."))
+            report(RequestProgress(RequestPhase.CHECKING_SESSION))
             session_id = self._ensure_session(client)
             if self._closed.is_set():
                 raise MonaiClientError("MONAI image session is closed")

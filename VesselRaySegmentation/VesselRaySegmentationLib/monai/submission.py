@@ -17,7 +17,7 @@ from .client import (
     MonaiClientError,
 )
 from .images import IMAGE_SUFFIXES, VolumeSnapshot
-from .progress import ReportProgress, RequestProgress, ignore_progress
+from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress
 from .sessions import VolumeSession
 
 _PROVENANCE_FIELDS = (
@@ -83,7 +83,7 @@ def run_inference(
     request: InferenceRequest, report: ReportProgress = ignore_progress
 ) -> InferenceResult:
     """Perform one native Label request without touching the live MRML scene."""
-    report(RequestProgress("Checking endpoint model..."))
+    report(RequestProgress(RequestPhase.VALIDATING))
     client = MonaiClient(request.connection, report)
     model = client.models().get(request.model)
     if model is None or model.input_profile != request.input_profile:
@@ -100,7 +100,7 @@ def run_inference(
                 response = client.infer(image, request.model, request.parameters)
         else:
             image = directory / "ct.nrrd"
-            report(RequestProgress("Preparing CT file for upload..."))
+            report(RequestProgress(RequestPhase.PREPARING))
             request.snapshot.write_image(image)
             response = client.infer(image, request.model, request.parameters)
         return _read_result(request, response, directory)

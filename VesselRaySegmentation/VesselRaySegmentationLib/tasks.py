@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from .monai.client import MonaiClient
@@ -110,14 +111,19 @@ class TaskController:
         else:
             done(result)
 
-    def discover(self, connection, on_done, on_failed) -> None:
+    def _client(self, connection):
         if self.browser:
             from .browser import BrowserClient
 
-            operation = BrowserClient(connection).models
-        else:
-            operation = MonaiClient(connection).models
-        self._start(operation, on_done, on_failed)
+            return BrowserClient(connection)
+        return MonaiClient(connection)
+
+    def discover(self, connection, on_done, on_failed) -> None:
+        self._start(self._client(connection).models, on_done, on_failed)
+
+    def check_endpoint(self, connection, on_done, on_failed) -> None:
+        connection = replace(connection, timeout_seconds=min(5, connection.timeout_seconds))
+        self._start(self._client(connection).info, on_done, on_failed)
 
     def infer(self, request, on_done, on_failed, on_progress=ignore_progress) -> None:
         self.on_progress = on_progress

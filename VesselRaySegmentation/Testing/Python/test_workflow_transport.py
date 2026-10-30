@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from VesselRaySegmentationLib.monai import client, submission
 from VesselRaySegmentationLib.monai.images import VolumeSnapshot
+from VesselRaySegmentationLib.monai.progress import RequestPhase
 
 
 def multipart(image: bytes, *, filename="mask.nrrd", metadata=None) -> bytes:
@@ -218,11 +219,16 @@ def test_network_timeout_and_redirect_are_explicit(label_server, tmp_path):
 def test_https_uses_certificate_and_hostname_verification(monkeypatch):
     contexts = []
 
-    def request(_method, _url, **options):
-        contexts.append(options["verify"])
-        return httpx.Response(200, json={"models": {}})
+    original = httpx.Client
 
-    monkeypatch.setattr(httpx, "request", request)
+    def create_client(**options):
+        contexts.append(options["verify"])
+        options["transport"] = httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"models": {}})
+        )
+        return original(**options)
+
+    monkeypatch.setattr(httpx, "Client", create_client)
     client.MonaiClient(client.ConnectionSettings("https://example.invalid")).info()
     assert contexts[0].verify_mode == ssl.CERT_REQUIRED
     assert contexts[0].check_hostname is True
@@ -642,7 +648,7 @@ def test_failed_upload_closes_the_source(label_server, tmp_path, monkeypatch):
         raise httpx.ReadTimeout("offline")
 
     monkeypatch.setattr(Path, "open", open_source)
-    monkeypatch.setattr(httpx, "request", fail)
+    monkeypatch.setattr(httpx.Client, "send", fail)
     transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2))
     with pytest.raises(client.MonaiClientError, match="timed out"):
         transport.create_session(path)
@@ -659,13 +665,13 @@ def test_upload_feedback_confirms_receipt_before_inference(label_server, tmp_pat
     session_id = transport.create_session(path)
     uploads = [update for update in updates if update.total_bytes]
     assert uploads[0].completed_bytes == 0
-    assert uploads[-1].completed_bytes == path.stat().st_size
+    assert uploads[-1].completed_bytes == int(label_server.requests[0][1]["Content-Length"])
     assert uploads[-1].bytes_per_second > 0
     receipt = len(updates) - 1
-    assert "Session created" in updates[receipt].message
+    assert updates[receipt].phase is RequestPhase.SESSION_READY
     transport.infer(client.SessionInput(session_id), "smoke-test", {})
-    assert "inference response" in updates[receipt + 1].message
-    assert "response received" in updates[-1].message
+    assert updates[receipt + 1].phase is RequestPhase.WAITING
+    assert updates[-1].phase is RequestPhase.READING
     assert [request[0].split("?")[0] for request in label_server.requests] == [
         "/session/",
         "/infer/smoke-test",
@@ -673,34 +679,25 @@ def test_upload_feedback_confirms_receipt_before_inference(label_server, tmp_pat
 
 
 @pytest.mark.parametrize("reachable", [True, False])
-def test_liveness_is_independent_of_inference_and_does_not_abort_it(
-    label_server, tmp_path, monkeypatch, reachable
-):
+def test_endpoint_check_is_independent_of_inference(label_server, reachable):
     from concurrent.futures import ThreadPoolExecutor
 
-    monkeypatch.setattr(client, "PROBE_INTERVAL_SECONDS", 0.02)
     label_server.hold = True
     label_server.info_status = 200 if reachable else 503
-    checked = threading.Event()
-    updates = []
-
-    def report(update):
-        updates.append(update)
-        if update.endpoint_reachable is not None:
-            checked.set()
-
-    transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2), report)
+    transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2))
     with ThreadPoolExecutor(max_workers=1) as pool:
         result = pool.submit(transport.infer, client.SessionInput("session"), "smoke-test", {})
         try:
             assert label_server.started.wait(2)
-            assert checked.wait(2), "No endpoint feedback while the inference request was held"
+            if reachable:
+                assert transport.info()["models"]
+            else:
+                with pytest.raises(client.MonaiClientError):
+                    transport.info()
             assert not result.done(), "An endpoint check ended the inference request"
-            assert updates[-1].endpoint_reachable is reachable
         finally:
             label_server.release.set()
         assert result.result(timeout=2).image == b"result\x00\xff"
-    assert "response received" in updates[-1].message
 
 
 def test_detached_snapshot_io_preserves_oblique_geometry_and_rejects_wrong_grid(tmp_path):

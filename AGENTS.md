@@ -29,7 +29,10 @@ the root tool environment intentionally has no application runtime dependencies.
 
 - Inference feedback uses the native session and inference routes. Endpoint
   checks establish reachability only, not model progress. Upload byte counts
-  measure bytes handed to HTTPX; the session response confirms server receipt.
+  include HTTPX's multipart framing; the session response confirms server receipt.
+  Keep transport callbacks as phase/measurement data; user-facing wording belongs
+  to the feedback view. Schedule checks with Qt timers and the existing request
+  controller rather than separate desktop/browser transport monitor loops.
   Fetch exposes no upload-byte callbacks, and SlicerWeb's progress bar has no
   animated busy state, so its elapsed counter supplies activity feedback.
   SlicerWeb's QLabel interprets text containing angle brackets as HTML, and its

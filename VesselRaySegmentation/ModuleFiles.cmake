@@ -4,6 +4,8 @@ set(MODULE_PYTHON_SCRIPTS
     VesselRaySegmentationLib/__init__.py
     VesselRaySegmentationLib/browser.py
     VesselRaySegmentationLib/centerlines.py
+    VesselRaySegmentationLib/ui/__init__.py
+    VesselRaySegmentationLib/ui/feedback.py
     VesselRaySegmentationLib/logic.py
     VesselRaySegmentationLib/monai/__init__.py
     VesselRaySegmentationLib/monai/client.py

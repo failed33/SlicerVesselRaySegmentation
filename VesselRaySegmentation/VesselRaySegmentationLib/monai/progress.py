@@ -1,20 +1,30 @@
-"""Small client-observed updates, independent of image previews and model internals."""
+"""Transport facts shared by desktop and browser, with presentation owned by the UI."""
 
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from typing import BinaryIO
+from enum import Enum, auto
+
+
+class RequestPhase(Enum):
+    VALIDATING = auto()
+    PREPARING = auto()
+    CHECKING_SESSION = auto()
+    SESSION_READY = auto()
+    UPLOADING = auto()
+    WAITING = auto()
+    RECEIVING = auto()
+    READING = auto()
 
 
 @dataclass(frozen=True)
 class RequestProgress:
-    message: str
+    phase: RequestPhase
     completed_bytes: int = 0
     total_bytes: int = 0
     bytes_per_second: float = 0
-    endpoint_reachable: bool | None = None
 
 
 ReportProgress = Callable[[RequestProgress], None]
@@ -24,40 +34,24 @@ def ignore_progress(_update: RequestProgress) -> None:
     pass
 
 
-class UploadReader:
-    """Count file bytes handed to HTTPX, keeping its native multipart encoder."""
-
-    def __init__(self, source: BinaryIO, total: int, report: ReportProgress) -> None:
-        self.source = source
-        self.total = total
-        self.report = report
-        self.started = time.monotonic()
-        self.updated = self.started
-        self.report(RequestProgress("Uploading CT", total_bytes=total))
-
-    def fileno(self) -> int:
-        return self.source.fileno()
-
-    def tell(self) -> int:
-        return self.source.tell()
-
-    def seek(self, offset: int, whence: int = 0) -> int:
-        return self.source.seek(offset, whence)
-
-    def read(self, size: int = -1) -> bytes:
-        chunk = self.source.read(size)
+def upload_chunks(chunks: Iterable[bytes], total: int, report: ReportProgress) -> Iterator[bytes]:
+    """Observe HTTPX's encoded body using its documented content-generator pattern."""
+    started = updated = time.monotonic()
+    completed = 0
+    report(RequestProgress(RequestPhase.UPLOADING, total_bytes=total))
+    for chunk in chunks:
+        yield chunk
+        completed += len(chunk)
         now = time.monotonic()
-        if not chunk:
-            self.report(RequestProgress("Upload sent. Waiting for server confirmation..."))
-        elif now - self.updated >= 0.25 or self.tell() == self.total:
-            completed = self.tell()
-            self.report(
+        if now - updated >= 0.25 or completed == total:
+            elapsed = max(now - started, 0.001)
+            report(
                 RequestProgress(
-                    "Uploading CT",
-                    completed,
-                    self.total,
-                    completed / max(now - self.started, 0.001),
+                    RequestPhase.UPLOADING,
+                    completed_bytes=completed,
+                    total_bytes=total,
+                    bytes_per_second=completed / elapsed,
                 )
             )
-            self.updated = now
-        return chunk
+            updated = now
+    report(RequestProgress(RequestPhase.WAITING))

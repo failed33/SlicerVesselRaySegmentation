@@ -111,8 +111,8 @@ FormData and does not load HTTPX. Both transports retain native Label image
 sessions and reject redirects.
 
 The workflow acknowledges request preparation, image upload, session creation or
-reuse, waiting for inference, and result import. Desktop uploads show CT bytes
-handed to HTTPX and their average rate; the session response confirms receipt.
+reuse, waiting for inference, and result import. Desktop uploads show encoded
+request bytes and their average rate; the session response confirms receipt.
 Browser Fetch has no upload-byte callback and shows activity while uploading.
 While inference is pending, a busy indicator and elapsed counter stay visible.
 An endpoint check runs every 15 seconds with a five-second timeout. Its result
