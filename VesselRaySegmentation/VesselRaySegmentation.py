@@ -171,10 +171,20 @@ class VesselRaySegmentationTest(ScriptedLoadableModuleTest):
         panel = widget.workflow
         self.assertEqual(panel.arg_button.text, "Run ARG inference")
         self.assertEqual(panel.model_o_button.text, "Run ModelO inference")
-        panel.create_curve_button.click()
-        curve = panel.centerline.currentNode()
-        self.assertIsNotNone(curve)
-        self.assertEqual(curve.GetNumberOfControlPoints(), 0)
+        # ARG and ModelO share the input CT; only ModelO consumes the centerline group.
+        setup = panel.refresh_button.parentWidget()
+        self.assertEqual(panel.volume.parentWidget(), setup)
+        self.assertNotEqual(panel.arg_button.parentWidget(), setup)
+        self.assertEqual(panel.centerline.parentWidget(), panel.model_o_button.parentWidget())
+        texts = {str(getattr(control, "text", "")) for control in panel.controls}
+        for removed in (
+            "Open Segment Editor for trimming",
+            "Open Extract Centerline",
+            "Create centerline curve",
+            "Open Markups for editing",
+        ):
+            self.assertNotIn(removed, texts)
+        self.assertIn("Generate VMTK network curves", texts)
 
     def test_missing_vmtk_is_explicit(self) -> None:
         if slicer.app.moduleManager().module("ExtractCenterline") is None:

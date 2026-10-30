@@ -1,4 +1,4 @@
-"""The endpoint, ARG, cleanup, centerline and ModelO workflow panel."""
+"""The setup, ARG, cleanup, centerline and ModelO workflow panel."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ class WorkflowPanel:
         self.arg_models = []
         self.model_o_models = []
         self.controls = []
-        self._setup_endpoint(layout)
-        # Beneath the endpoint and above every step that sends a request.
+        self._setup(layout)
+        # Beneath the setup and above every step that sends a request.
         self.feedback = RequestFeedback(self._check_endpoint, self.tasks.cancel)
         self.feedback.notify("Configure the endpoint, then refresh its available models.")
         layout.addWidget(self.feedback.widget)
@@ -77,8 +77,8 @@ class WorkflowPanel:
         self.controls.append(widget)
         return widget
 
-    def _setup_endpoint(self, layout) -> None:
-        fields = self._group(layout, "1. Endpoint configuration")
+    def _setup(self, layout) -> None:
+        fields = self._group(layout, "1. Setup")
         settings = qt.QSettings()
         self.endpoint = qt.QLineEdit(str(settings.value("VesselRaySegmentation/endpoint", "")))
         self.endpoint.placeholderText = "https://your-monai-label-server"
@@ -100,10 +100,10 @@ class WorkflowPanel:
             fields, "Refresh models", self.refresh, "RefreshModelsButton"
         )
         self.controls.extend([self.endpoint, self.token, self.timeout])
+        self.volume = self._node(fields, "Input CT:", ["vtkMRMLScalarVolumeNode"])
 
     def _setup_arg(self, layout) -> None:
         fields = self._group(layout, "2. ARG inference")
-        self.volume = self._node(fields, "Input CT:", ["vtkMRMLScalarVolumeNode"])
         self.arg_model = qt.QComboBox()
         fields.addRow("ARG model:", self.arg_model)
         self.controls.append(self.arg_model)
@@ -135,36 +135,22 @@ class WorkflowPanel:
         self.cleaned_segment.setMRMLScene(slicer.mrmlScene)
         self.cleaned_segment.noneEnabled = True
         fields.addRow("Cleaned vessel segment:", self.cleaned_segment)
-        self._button(fields, "Open Segment Editor for trimming", self.open_editor, "TrimARGButton")
         self.controls.extend(
             [self.arg_segment, self.cleaned_segment, self.minimum_mass, self.component_count]
         )
 
     def _setup_centerlines(self, layout) -> None:
-        fields = self._group(layout, "4. Centerline generation and editing")
+        fields = self._group(layout, "4. Centerline generation")
         self._button(
             fields, "Generate VMTK network curves", self.extract, "GenerateCenterlinesButton"
         )
-        self._button(
-            fields, "Open Extract Centerline", self.open_extraction, "OpenCenterlinesButton"
-        )
-        self.create_curve_button = self._button(
-            fields, "Create centerline curve", self.create_curve, "CreateCenterlineButton"
-        )
+
+    def _setup_model_o(self, layout) -> None:
+        fields = self._group(layout, "5. ModelO inference")
         self.centerline = self._node(
             fields, "Edited centerlines:", ["vtkMRMLMarkupsCurveNode", "vtkMRMLMarkupsLineNode"]
         )
         self.centerline.toolTip = "Select the root curve to include all nested branch curves."
-        self._button(fields, "Open Markups for editing", self.open_markups, "EditCenterlinesButton")
-        note = qt.QLabel(
-            "Network curves are approximate. Inspect coverage and edit the curves before ModelO. "
-            "Automatic extraction requires SlicerVMTK; manually placed curves work on both hosts."
-        )
-        note.wordWrap = True
-        fields.addRow(note)
-
-    def _setup_model_o(self, layout) -> None:
-        fields = self._group(layout, "5. ModelO inference")
         self.model_o_model = qt.QComboBox()
         fields.addRow("ModelO model:", self.model_o_model)
         self.controls.append(self.model_o_model)
@@ -318,16 +304,6 @@ class WorkflowPanel:
         except Exception as error:
             self.failed(error)
 
-    def open_editor(self) -> None:
-        try:
-            scene.open_segment_editor(
-                self.cleaned_segment.currentNode(),
-                self.volume.currentNode(),
-                self.cleaned_segment.currentSegmentID(),
-            )
-        except Exception as error:
-            self.failed(error)
-
     def extract(self) -> None:
         try:
             output, summary = self.logic.extract_centerlines(
@@ -341,32 +317,6 @@ class WorkflowPanel:
             )
         except Exception as error:
             self.failed(error)
-
-    def open_extraction(self) -> None:
-        if slicer.app.moduleManager().module("ExtractCenterline") is None:
-            self.failed(
-                RuntimeError(
-                    "Install SlicerVMTK for automatic centerline extraction. "
-                    "You can also place native Markups curves manually."
-                )
-            )
-            return
-        slicer.util.selectModule("ExtractCenterline")
-
-    def create_curve(self) -> None:
-        curve = self.logic.create_centerline()
-        self.centerline.setCurrentNode(curve)
-        self.feedback.notify(
-            "Created an empty curve. Place and edit at least two points in Markups."
-        )
-
-    def open_markups(self) -> None:
-        if self.tasks.browser:
-            from .browser import open_panel
-
-            open_panel("Markups")
-        else:
-            slicer.util.selectModule("Markups")
 
     def cleanup(self) -> None:
         slicer.mrmlScene.RemoveObserver(self.scene_observer)

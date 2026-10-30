@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import sys
 import time
 import unittest
@@ -60,7 +61,6 @@ def test_automatic_centerlines() -> dict:
     coverage = float(np.ptp(np.concatenate([np.asarray(line)[:, 0] for line in lines])))
     if coverage < 25 or summary["failed_components"]:
         raise AssertionError(f"VMTK did not cover the straight tube: {coverage} mm, {summary}")
-    # Leave the widget test's single manually created curve for the external click check.
     hierarchy.RemoveItem(hierarchy.GetItemByDataNode(curve))
     slicer.mrmlScene.RemoveNode(segmentation)
     return {
@@ -69,6 +69,29 @@ def test_automatic_centerlines() -> dict:
         "curve_count": summary["curve_count"],
         "method": "VMTK approximate network",
     }
+
+
+def _panel():
+    module = slicer.app.moduleManager().module("VesselRaySegmentation")
+    representation = module.widgetRepresentation()
+    widget = representation.self() if hasattr(representation, "self") else representation
+    return widget.workflow
+
+
+def request_state() -> str:
+    """Report the production panel's request state to the browser's real button clicks."""
+    panel = _panel()
+    feedback = panel.feedback
+    return json.dumps(
+        {
+            "models": len(panel.models),
+            "requests": feedback.request,
+            "pending": panel.pending,
+            "busy": not feedback.progress.isHidden(),
+            "unlocked": all(control.enabled for control in panel.controls),
+            "status": str(feedback.status.text),
+        }
+    )
 
 
 async def _pump_until(panel, ready, failure: str) -> None:
@@ -185,7 +208,6 @@ def _workflow_cleanup(panel, volume):
     assert cleaned is not None and cleaned is not raw
     mask = np.array(_segment_mask(cleaned, volume), copy=True)
     assert int(mask.sum()) == 27
-    panel.open_editor()
     mask[1, 1, 1] = 0  # Simulate a manual edit through Slicer's native segment API.
     segment_id = cleaned.GetSegmentation().GetNthSegmentID(0)
     slicer.util.updateSegmentBinaryLabelmapFromArray(mask, cleaned, segment_id, volume)
@@ -197,8 +219,8 @@ def _workflow_cleanup(panel, volume):
 def _workflow_curve(panel):
     import vtk
 
-    panel.create_curve()
-    curve = panel.centerline.currentNode()
+    curve = panel.logic.create_centerline()
+    panel.centerline.setCurrentNode(curve)
     curve.AddControlPoint(vtk.vtkVector3d(11.0, -18.0, 2.0))
     curve.AddControlPoint(vtk.vtkVector3d(11.0, -18.0, 6.0))
     return curve
@@ -211,10 +233,7 @@ async def test_hosted_workflow(
     import qt
     import vtk
 
-    module = slicer.app.moduleManager().module("VesselRaySegmentation")
-    representation = module.widgetRepresentation()
-    widget = representation.self() if hasattr(representation, "self") else representation
-    panel = widget.workflow
+    panel = _panel()
     settings = qt.QSettings()
     previous = settings.value("VesselRaySegmentation/endpoint", None)
     updates = _record_progress(panel)
