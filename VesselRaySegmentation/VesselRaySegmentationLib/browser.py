@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import quote
 
-from .monai.client import ModelDescriptor, MonaiClientError, Upload, _decode_result
+from .monai.client import (
+    PROBE_INTERVAL_SECONDS,
+    PROBE_TIMEOUT_SECONDS,
+    ModelDescriptor,
+    MonaiClientError,
+    Upload,
+    _decode_result,
+)
+from .monai.progress import ReportProgress, RequestProgress, ignore_progress
 from .monai.submission import _read_result
 
 
@@ -65,6 +76,7 @@ class BrowserClient:
 
     def __init__(self, connection) -> None:
         self.connection = connection
+        self.report: ReportProgress = ignore_progress
 
     async def request(self, path: str, method: str = "GET", upload=None) -> tuple[str, bytes]:
         from js import AbortController
@@ -81,6 +93,10 @@ class BrowserClient:
 
         async def receive():
             response = await pyfetch(self.connection.endpoint.rstrip("/") + path, **options)
+            if method == "POST" and response.ok:
+                self.report(
+                    RequestProgress("Inference response received. Downloading segmentation...")
+                )
             return response, await response.bytes()
 
         try:
@@ -111,6 +127,31 @@ class BrowserClient:
         except (ValueError, KeyError, TypeError) as error:
             raise MonaiClientError("MONAI Label returned invalid discovery information") from error
 
+    @asynccontextmanager
+    async def endpoint_monitor(self) -> AsyncIterator[None]:
+        async def probe():
+            client = BrowserClient(
+                replace(
+                    self.connection,
+                    timeout_seconds=min(PROBE_TIMEOUT_SECONDS, self.connection.timeout_seconds),
+                )
+            )
+            while True:
+                await asyncio.sleep(PROBE_INTERVAL_SECONDS)
+                try:
+                    await client.models()
+                    self.report(RequestProgress("Endpoint responded", endpoint_reachable=True))
+                except MonaiClientError:
+                    self.report(RequestProgress("Endpoint check failed", endpoint_reachable=False))
+
+        task = asyncio.create_task(probe())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
 
 class BrowserSession:
     """Retain one immutable upload until all active requests have finished."""
@@ -129,6 +170,9 @@ class BrowserSession:
                 await self.client.request(
                     f"/session/{quote(self.session_id, safe='')}?update_ts=true"
                 )
+                self.client.report(
+                    RequestProgress("Existing image session confirmed. Reusing uploaded CT.")
+                )
                 return self.session_id
             except MonaiClientError as error:
                 if error.status_code != 404:
@@ -136,7 +180,10 @@ class BrowserSession:
                 self.session_id = None
         with TemporaryDirectory(prefix="vessel-upload-") as temporary:
             path = Path(temporary) / "ct.nrrd"
+            self.client.report(RequestProgress("Preparing CT file for upload..."))
+            await asyncio.sleep(0.05)
             self.snapshot.write_image(path)
+            self.client.report(RequestProgress("Uploading CT and creating image session..."))
             _kind, body = await self.client.request(
                 "/session/", "PUT", Upload(path=path, file_field="files")
             )
@@ -148,28 +195,39 @@ class BrowserSession:
             raise MonaiClientError("MONAI Label returned invalid session information") from error
         self.session_id = session_id
         self.uncertain = False
+        self.client.report(RequestProgress("Image received by server. Session created."))
         return session_id
 
-    async def infer(self, request):
+    async def infer(self, request, report: ReportProgress = ignore_progress):
         async with self.lock:
+            self.client.report = report
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
+            report(RequestProgress("Checking endpoint model..."))
             models = await self.client.models()
             model = models.get(request.model)
             if model is None or model.input_profile != request.input_profile:
                 raise MonaiClientError("Model input requirements changed; refresh the endpoint")
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
+            report(RequestProgress("Checking image session..."))
             session_id = await self.ensure()
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
             try:
-                kind, body = await self.client.request(
-                    f"/infer/{quote(request.model, safe='')}?output=all&session_id="
-                    + quote(session_id, safe=""),
-                    "POST",
-                    Upload(parameters=request.parameters),
+                report(
+                    RequestProgress(
+                        f"Image session ready. Waiting for {request.model} inference response..."
+                    )
                 )
+                async with self.client.endpoint_monitor():
+                    kind, body = await self.client.request(
+                        f"/infer/{quote(request.model, safe='')}?output=all&session_id="
+                        + quote(session_id, safe=""),
+                        "POST",
+                        Upload(parameters=request.parameters),
+                    )
+                report(RequestProgress("Inference response received. Reading segmentation..."))
                 response = _decode_result(kind, body)
                 with TemporaryDirectory(prefix="vessel-result-") as temporary:
                     return _read_result(request, response, Path(temporary))

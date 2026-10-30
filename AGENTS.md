@@ -27,6 +27,15 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Inference feedback uses the native session and inference routes. Endpoint
+  checks establish reachability only, not model progress. Upload byte counts
+  measure bytes handed to HTTPX; the session response confirms server receipt.
+  Fetch exposes no upload-byte callbacks, and SlicerWeb's progress bar has no
+  animated busy state, so its elapsed counter supplies activity feedback.
+  SlicerWeb's QLabel interprets text containing angle brackets as HTML, and its
+  setTextFormat is currently a stub. Deferred submission acceptance must pump
+  Qt before waiting on a server-side barrier.
+
 - MONAI desktop transport imports HTTPX only when making a desktop request.
   SlicerWeb imports the shared route types but uses browser FormData and Fetch;
   do not make HTTPX or other socket clients a browser import dependency. Desktop

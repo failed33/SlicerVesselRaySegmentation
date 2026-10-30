@@ -6,7 +6,22 @@ import argparse
 import json
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
+
+
+def logging_config() -> dict:
+    """Use Uvicorn's native handlers with concise application lifecycle records."""
+    from uvicorn.config import LOGGING_CONFIG
+
+    config = deepcopy(LOGGING_CONFIG)
+    config["root"] = {"handlers": ["default"], "level": "WARNING"}
+    config["loggers"]["monai_service"] = {
+        "handlers": ["default"],
+        "level": "INFO",
+        "propagate": False,
+    }
+    return config
 
 
 def service_environment(root: Path) -> dict[str, str]:
@@ -41,4 +56,4 @@ def main() -> None:
 
     import uvicorn
 
-    uvicorn.run("asgi:app", host="127.0.0.1", port=args.port)
+    uvicorn.run("asgi:app", host="127.0.0.1", port=args.port, log_config=logging_config())

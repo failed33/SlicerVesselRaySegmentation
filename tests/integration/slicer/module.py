@@ -71,14 +71,72 @@ def test_automatic_centerlines() -> dict:
     }
 
 
-async def _settled(panel) -> None:
+async def _pump_until(panel, ready, failure: str) -> None:
     deadline = asyncio.get_running_loop().time() + 45
-    while panel.tasks.busy:
+    while not ready():
         if asyncio.get_running_loop().time() >= deadline:
-            raise TimeoutError("Hosted workflow stalled: " + str(panel.status.text))
+            raise TimeoutError(failure + ": " + str(panel.status.text))
         if sys.platform != "emscripten":
             slicer.app.processEvents()
         await asyncio.sleep(0.01)
+
+
+async def _settled(panel) -> None:
+    await _pump_until(panel, lambda: not panel.pending, "Hosted workflow stalled")
+
+
+def _assert_idle(panel, outcome: str) -> None:
+    """Request-only feedback disappears and every workflow control unlocks."""
+    status = str(panel.status.text)
+    assert outcome in status, status
+    assert not panel.pending and not panel.clock.active, status
+    assert panel.activity.isHidden() and panel.liveness.isHidden(), status
+    assert not panel.cancel_button.enabled, status
+    assert all(control.enabled for control in panel.controls), status
+    assert panel.refresh_button.text == "Refresh models", status
+    assert panel.arg_button.text == "Run ARG inference", status
+    assert panel.model_o_button.text == "Run ModelO inference", status
+
+
+def _assert_feedback_placement(panel) -> None:
+    """Request feedback sits above the request steps instead of after the last one."""
+    layout = panel.feedback.parentWidget().layout()
+    order = [layout.itemAt(index).widget() for index in range(layout.count())]
+    assert order.index(panel.feedback) < order.index(panel.arg_button.parentWidget()), order
+
+
+def _record_progress(panel) -> list:
+    """Observe the real updates delivered to the production panel."""
+    updates = []
+    show = panel._progress
+
+    def record(update):
+        updates.append(update)
+        show(update)
+
+    panel._progress = record
+    return updates
+
+
+async def _assert_waiting(panel, model: str) -> None:
+    await _pump_until(
+        panel,
+        lambda: (
+            f"{model} inference response" in str(panel.status.text)
+            and not panel.liveness.isHidden()
+            and panel.endpoint_check is not None
+        ),
+        "Delayed request showed no waiting feedback",
+    )
+    status = str(panel.status.text)
+    assert panel.pending and not panel.activity.isHidden(), status
+    # A busy indicator, not fabricated model progress.
+    assert panel.activity.maximum == 0, status
+    assert panel.cancel_button.enabled and not panel.model_o_button.enabled, status
+    assert panel.model_o_button.text == "Running ModelO inference...", status
+    assert str(panel.liveness.text).startswith("Elapsed "), str(panel.liveness.text)
+    assert panel.endpoint_check[0], str(panel.liveness.text)
+    assert "Endpoint responded" in str(panel.liveness.text), str(panel.liveness.text)
 
 
 def _workflow_scene(panel):
@@ -152,20 +210,38 @@ async def test_hosted_workflow(
     panel = widget.workflow
     settings = qt.QSettings()
     previous = settings.value("VesselRaySegmentation/endpoint", None)
+    updates = _record_progress(panel)
     try:
+        _assert_feedback_placement(panel)
         volume = _workflow_scene(panel)
         panel.endpoint.text = endpoint
         panel.token.text = token
         panel.refresh()
         await _settled(panel)
+        _assert_idle(panel, "Endpoint ready")
         assert [model.name for model in panel.arg_models] == ["arg-fixture"]
         assert [model.name for model in panel.model_o_models] == ["model-o-fixture"]
         panel.run_arg()
+        # The click is acknowledged before the deferred scene capture runs.
+        assert panel.pending and not panel.activity.isHidden(), str(panel.status.text)
+        assert panel.arg_button.text == "Running ARG inference..."
+        assert not panel.arg_button.enabled and panel.cancel_button.enabled
         await _settled(panel)
+        _assert_idle(panel, "arg-fixture finished in")
+        messages = [str(update.message) for update in updates]
+        assert any("Session created" in message for message in messages), messages
+        uploads = [update for update in updates if update.total_bytes]
+        if sys.platform != "emscripten":
+            # Browser fetch cannot observe upload bytes; desktop must report them.
+            assert uploads and uploads[-1].completed_bytes == uploads[-1].total_bytes, uploads
         raw, cleaned = _workflow_cleanup(panel, volume)
         curve = _workflow_curve(panel)
+        updates.clear()
         panel.run_model_o()
         await _settled(panel)
+        _assert_idle(panel, "model-o-fixture finished in")
+        messages = [str(update.message) for update in updates]
+        assert any("Reusing uploaded CT" in message for message in messages), messages
         first = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")[-1]
         assert first not in (raw, cleaned), str(panel.status.text)
         assert int(_segment_mask(first, volume).sum()) == 3
@@ -175,13 +251,19 @@ async def test_hosted_workflow(
         second = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")[-1]
         assert second is not first, str(panel.status.text)
         assert int(_segment_mask(second, volume).sum()) == 2
+        _assert_idle(panel, "model-o-fixture finished in")
         panel.run_model_o()
+        # Pump Qt so the deferred submission is sent, then check the held request's feedback.
+        await _assert_waiting(panel, "model-o-fixture")
         # The harness observes the real server's start receipt, rather than guessing a delay.
         await wait_for_request()
         closed_at = time.time()
         slicer.mrmlScene.Clear(0)
+        assert panel.pending and not panel.activity.isHidden(), str(panel.status.text)
+        assert "Scene closed" in str(panel.status.text) and not panel.cancel_button.enabled
         await release_request()
         await _settled(panel)
+        _assert_idle(panel, "Result discarded")
         assert slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLSegmentationNode") == 0
         assert panel.logic.snapshot is None
         return {
@@ -189,12 +271,15 @@ async def test_hosted_workflow(
             "arg_voxels": 28,
             "cleaned_voxels": 26,
             "model_o_voxels": [3, 2],
+            "upload_progress_updates": len(uploads),
+            "request_feedback": "passed",
             "scene_close_discards_result": True,
             "centerline_mode": "native editable Markups",
             "trained_model": False,
             "scene_closed_at": closed_at,
         }
     finally:
+        del panel._progress
         panel.logic.cleanup()
         panel.tasks.release_session()
         panel.token.text = ""

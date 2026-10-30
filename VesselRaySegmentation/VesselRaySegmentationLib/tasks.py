@@ -6,10 +6,12 @@ import asyncio
 import queue
 import sys
 import threading
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from .monai.client import MonaiClient
+from .monai.progress import ReportProgress, RequestProgress, ignore_progress
 from .monai.submission import run_inference
 
 if TYPE_CHECKING:
@@ -25,6 +27,8 @@ class TaskController:
         self.browser_session: BrowserSession | None = None
         self.pending: asyncio.Future[None] | None = None
         self.messages: queue.Queue[tuple[Any, Exception | None]] = queue.Queue()
+        self.updates: queue.Queue[RequestProgress] = queue.Queue()
+        self.on_progress: ReportProgress = ignore_progress
         self.callbacks: tuple[Callable[[Any], None], Callable[[Exception], None]] | None = None
         self.timer: Any = None  # PythonQt and SlicerWeb supply the timer at runtime.
         if not self.browser:
@@ -42,6 +46,8 @@ class TaskController:
     ) -> None:
         if self.busy or self.disposed:
             raise RuntimeError("An endpoint request is already running")
+        while not self.updates.empty():
+            self.updates.get_nowait()
         self.busy, self.cancelled = True, False
         self.callbacks = (on_done, on_failed)
         if self.browser:
@@ -65,15 +71,35 @@ class TaskController:
         threading.Thread(target=run, name="vessel-inference", daemon=True).start()
 
     def _poll(self) -> None:
+        # Yield the GIL, as Slicer's SimpleFilters does for Python workers.
+        time.sleep(0.001)
+        for _ in range(16):
+            try:
+                self._progress(self.updates.get_nowait())
+            except queue.Empty:
+                break
         try:
             result, error = self.messages.get_nowait()
         except queue.Empty:
             return
         self.timer.stop()
+        while not self.updates.empty():
+            self._progress(self.updates.get_nowait())
         self._deliver(result, error)
+
+    def _progress(self, update: RequestProgress) -> None:
+        if not self.cancelled and not self.disposed:
+            self.on_progress(update)
+
+    def _report(self, update: RequestProgress) -> None:
+        if self.browser:
+            self._progress(update)
+        else:
+            self.updates.put(update)
 
     def _deliver(self, result, error) -> None:
         self.busy = False
+        self.on_progress = ignore_progress
         if self.disposed or self.callbacks is None:
             return
         done, failed = self.callbacks
@@ -93,7 +119,8 @@ class TaskController:
             operation = MonaiClient(connection).models
         self._start(operation, on_done, on_failed)
 
-    def infer(self, request, on_done, on_failed) -> None:
+    def infer(self, request, on_done, on_failed, on_progress=ignore_progress) -> None:
+        self.on_progress = on_progress
         if self.browser:
             from .browser import BrowserSession
 
@@ -106,9 +133,9 @@ class TaskController:
                 current = None
             self.browser_session = current or BrowserSession(request.connection, request.snapshot)
             session = self.browser_session
-            operation = lambda: session.infer(request)
+            operation = lambda: session.infer(request, self._report)
         else:
-            operation = lambda: run_inference(request)
+            operation = lambda: run_inference(request, self._report)
         self._start(operation, on_done, on_failed)
 
     def cancel(self) -> None:

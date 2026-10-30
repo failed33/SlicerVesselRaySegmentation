@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,6 +69,17 @@ class VolumeSnapshot:
         return cls(copied, geometry, *source)
 
     def write_image(self, path: Path) -> None:
+        if sys.platform != "emscripten":
+            # Work on detached arrays using ITK's GIL-releasing file I/O. MRML
+            # storage wrappers can retain the GIL during compression in Slicer.
+            import SimpleITK as sitk
+
+            image = sitk.GetImageFromArray(self.array)
+            image.SetSpacing(self.geometry.spacing_xyz)
+            image.SetOrigin(self.geometry.origin_lps)
+            image.SetDirection(self.geometry.direction_lps)
+            sitk.WriteImage(image, str(path), True)
+            return
         import slicer
         import vtk
 
@@ -93,6 +105,34 @@ class VolumeSnapshot:
 
     def read_mask(self, path: Path) -> np.ndarray:
         """Read labels only when their physical grid matches this submitted image."""
+        mask, returned = self._read_image(path)
+        if returned.shape_zyx != self.geometry.shape_zyx:
+            raise ValueError("Returned segmentation dimensions do not match the submitted CT")
+        for actual, expected, tolerance in (
+            (returned.spacing_xyz, self.geometry.spacing_xyz, GEOMETRY_ATOL),
+            (returned.origin_lps, self.geometry.origin_lps, ORIGIN_ATOL),
+            (returned.direction_lps, self.geometry.direction_lps, GEOMETRY_ATOL),
+        ):
+            if not np.allclose(actual, expected, atol=tolerance, rtol=0):
+                raise ValueError(
+                    "Returned segmentation physical geometry differs from the submitted CT"
+                )
+        if mask.ndim != 3 or mask.dtype.kind not in "iu" or np.any(mask < 0):
+            raise ValueError("Returned segmentation must contain nonnegative integer labels")
+        return np.array(mask, copy=True)
+
+    @staticmethod
+    def _read_image(path: Path) -> tuple[np.ndarray, ImageGeometry]:
+        if sys.platform != "emscripten":
+            import SimpleITK as sitk
+
+            image = sitk.ReadImage(str(path))
+            if image.GetDimension() != 3 or image.GetNumberOfComponentsPerPixel() != 1:
+                raise ValueError("Returned segmentation must contain scalar labels")
+            mask = sitk.GetArrayFromImage(image)
+            return mask, ImageGeometry(
+                mask.shape, image.GetSpacing(), image.GetOrigin(), image.GetDirection()
+            )
         import slicer
         import vtk
 
@@ -108,17 +148,4 @@ class VolumeSnapshot:
         matrix = vtk.vtkMatrix4x4()
         node.GetIJKToRASMatrix(matrix)
         returned = ImageGeometry.from_ijk_to_ras(mask.shape, slicer.util.arrayFromVTKMatrix(matrix))
-        if returned.shape_zyx != self.geometry.shape_zyx:
-            raise ValueError("Returned segmentation dimensions do not match the submitted CT")
-        for actual, expected, tolerance in (
-            (returned.spacing_xyz, self.geometry.spacing_xyz, GEOMETRY_ATOL),
-            (returned.origin_lps, self.geometry.origin_lps, ORIGIN_ATOL),
-            (returned.direction_lps, self.geometry.direction_lps, GEOMETRY_ATOL),
-        ):
-            if not np.allclose(actual, expected, atol=tolerance, rtol=0):
-                raise ValueError(
-                    "Returned segmentation physical geometry differs from the submitted CT"
-                )
-        if mask.ndim != 3 or mask.dtype.kind not in "iu" or np.any(mask < 0):
-            raise ValueError("Returned segmentation must contain nonnegative integer labels")
-        return np.array(mask, copy=True)
+        return mask, returned

@@ -41,6 +41,10 @@ def label_server():
         content_type="multipart/form-data; boundary=monai-test-boundary",
         sessions={},
         deleted_sessions=[],
+        hold=False,
+        started=threading.Event(),
+        release=threading.Event(),
+        info_status=200,
     )
 
     class Handler(BaseHTTPRequestHandler):
@@ -48,7 +52,11 @@ def label_server():
             state.requests.append((self.path, self.headers, b""))
             session_id = self.path.split("/")[-1].split("?")[0]
             is_session = self.path.startswith("/session/")
-            self.send_response(404 if is_session and session_id not in state.sessions else 200)
+            self.send_response(
+                (404 if session_id not in state.sessions else 200)
+                if is_session
+                else state.info_status
+            )
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"models": state.models}).encode())
@@ -74,6 +82,9 @@ def label_server():
         def do_POST(self):
             body = self.rfile.read(int(self.headers["Content-Length"]))
             state.requests.append((self.path, self.headers, body))
+            state.started.set()
+            if state.hold:
+                state.release.wait(5)
             time.sleep(state.delay)
             self.send_response(state.status)
             self.send_header("Content-Type", state.content_type)
@@ -636,3 +647,75 @@ def test_failed_upload_closes_the_source(label_server, tmp_path, monkeypatch):
     with pytest.raises(client.MonaiClientError, match="timed out"):
         transport.create_session(path)
     assert opened and all(stream.closed for stream in opened)
+
+
+def test_upload_feedback_confirms_receipt_before_inference(label_server, tmp_path):
+    path = tmp_path / "ct.nrrd"
+    path.write_bytes(b"ct" * 100000)
+    updates = []
+    transport = client.MonaiClient(
+        client.ConnectionSettings(label_server.endpoint, 2), updates.append
+    )
+    session_id = transport.create_session(path)
+    uploads = [update for update in updates if update.total_bytes]
+    assert uploads[0].completed_bytes == 0
+    assert uploads[-1].completed_bytes == path.stat().st_size
+    assert uploads[-1].bytes_per_second > 0
+    receipt = len(updates) - 1
+    assert "Session created" in updates[receipt].message
+    transport.infer(client.SessionInput(session_id), "smoke-test", {})
+    assert "inference response" in updates[receipt + 1].message
+    assert "response received" in updates[-1].message
+    assert [request[0].split("?")[0] for request in label_server.requests] == [
+        "/session/",
+        "/infer/smoke-test",
+    ]
+
+
+@pytest.mark.parametrize("reachable", [True, False])
+def test_liveness_is_independent_of_inference_and_does_not_abort_it(
+    label_server, tmp_path, monkeypatch, reachable
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(client, "PROBE_INTERVAL_SECONDS", 0.02)
+    label_server.hold = True
+    label_server.info_status = 200 if reachable else 503
+    checked = threading.Event()
+    updates = []
+
+    def report(update):
+        updates.append(update)
+        if update.endpoint_reachable is not None:
+            checked.set()
+
+    transport = client.MonaiClient(client.ConnectionSettings(label_server.endpoint, 2), report)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(transport.infer, client.SessionInput("session"), "smoke-test", {})
+        try:
+            assert label_server.started.wait(2)
+            assert checked.wait(2), "No endpoint feedback while the inference request was held"
+            assert not result.done(), "An endpoint check ended the inference request"
+            assert updates[-1].endpoint_reachable is reachable
+        finally:
+            label_server.release.set()
+        assert result.result(timeout=2).image == b"result\x00\xff"
+    assert "response received" in updates[-1].message
+
+
+def test_detached_snapshot_io_preserves_oblique_geometry_and_rejects_wrong_grid(tmp_path):
+    sitk = pytest.importorskip("SimpleITK")
+    matrix = np.array([[0, -1.1, 0, 17.3], [0.8, 0, 0, -8.6], [0, 0, 1.4, 5.2], [0, 0, 0, 1]])
+    values = np.arange(120, dtype=np.uint16).reshape(4, 5, 6)
+    snapshot = VolumeSnapshot.capture(values, matrix, ("id", "CT"))
+    path = tmp_path / "snapshot.nrrd"
+    snapshot.write_image(path)
+    np.testing.assert_array_equal(snapshot.read_mask(path), values)
+    image = sitk.ReadImage(str(path))
+    assert image.GetSpacing() == snapshot.geometry.spacing_xyz
+    assert image.GetOrigin() == snapshot.geometry.origin_lps
+    assert image.GetDirection() == snapshot.geometry.direction_lps
+    image.SetOrigin((100, 0, 0))
+    sitk.WriteImage(image, str(path))
+    with pytest.raises(ValueError, match="physical geometry differs"):
+        snapshot.read_mask(path)

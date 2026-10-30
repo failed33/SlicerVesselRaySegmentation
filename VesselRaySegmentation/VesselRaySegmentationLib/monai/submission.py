@@ -17,6 +17,7 @@ from .client import (
     MonaiClientError,
 )
 from .images import IMAGE_SUFFIXES, VolumeSnapshot
+from .progress import ReportProgress, RequestProgress, ignore_progress
 from .sessions import VolumeSession
 
 _PROVENANCE_FIELDS = (
@@ -78,9 +79,12 @@ def _read_result(
     return InferenceResult(mask, request, response.metadata)
 
 
-def run_inference(request: InferenceRequest) -> InferenceResult:
+def run_inference(
+    request: InferenceRequest, report: ReportProgress = ignore_progress
+) -> InferenceResult:
     """Perform one native Label request without touching the live MRML scene."""
-    client = MonaiClient(request.connection)
+    report(RequestProgress("Checking endpoint model..."))
+    client = MonaiClient(request.connection, report)
     model = client.models().get(request.model)
     if model is None or model.input_profile != request.input_profile:
         raise MonaiClientError("Model input requirements changed; refresh models before inference")
@@ -92,10 +96,11 @@ def run_inference(request: InferenceRequest) -> InferenceResult:
                 or request.session.connection != request.connection
             ):
                 raise ValueError("MONAI image session does not match the submitted CT and endpoint")
-            with request.session.use() as (client, image):
+            with request.session.use(report) as (client, image):
                 response = client.infer(image, request.model, request.parameters)
         else:
             image = directory / "ct.nrrd"
+            report(RequestProgress("Preparing CT file for upload..."))
             request.snapshot.write_image(image)
             response = client.infer(image, request.model, request.parameters)
         return _read_result(request, response, directory)

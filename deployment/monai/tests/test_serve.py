@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 import uvicorn
 
-from monai_service.serve import main, service_environment
+from monai_service.serve import logging_config, main, service_environment
 
 
 def test_service_uses_deployment_root_and_its_own_python(tmp_path: Path) -> None:
@@ -33,5 +33,7 @@ def test_entry_point_configures_service_before_starting_uvicorn(
     run = Mock()
     monkeypatch.setattr(uvicorn, "run", run)
     main()
-    run.assert_called_once_with("asgi:app", host="127.0.0.1", port=9000)
+    run.assert_called_once_with(
+        "asgi:app", host="127.0.0.1", port=9000, log_config=logging_config()
+    )
     assert os.environ["MONAI_SERVICE_ARG_MODEL_DIR"] == str(tmp_path / "models/arg")

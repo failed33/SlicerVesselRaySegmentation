@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 import math
 import ssl
-from contextlib import ExitStack
-from dataclasses import dataclass, field
+import threading
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field, replace
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
+
+from .progress import ReportProgress, RequestProgress, UploadReader, ignore_progress
+
+PROBE_INTERVAL_SECONDS = 15
+PROBE_TIMEOUT_SECONDS = 5
 
 
 class MonaiClientError(RuntimeError):
@@ -102,13 +109,14 @@ class Upload:
         return json.dumps(self.parameters, allow_nan=False)
 
 
-def _upload_files(upload: Upload, resources: ExitStack) -> dict[str, Any]:
+def _upload_files(upload: Upload, resources: ExitStack, report: ReportProgress) -> dict[str, Any]:
     files: dict[str, Any] = {}
     if upload.parameters is not None:
         files["params"] = (None, upload.parameter_json(), "application/json")
     if upload.path is not None:
         stream = resources.enter_context(upload.path.open("rb"))
-        files[upload.file_field] = (upload.filename, stream, "application/octet-stream")
+        reader = UploadReader(stream, upload.path.stat().st_size, report)
+        files[upload.file_field] = (upload.filename, reader, "application/octet-stream")
     return files
 
 
@@ -144,8 +152,11 @@ def _decode_result(content_type: str, body: bytes) -> InferenceResponse:
 class MonaiClient:
     """Use native Label discovery, image sessions and inference routes."""
 
-    def __init__(self, connection: ConnectionSettings) -> None:
+    def __init__(
+        self, connection: ConnectionSettings, report: ReportProgress = ignore_progress
+    ) -> None:
         self.connection = connection
+        self.report = report
 
     def _open(
         self, path: str, method: str = "GET", upload: Upload | None = None
@@ -158,7 +169,9 @@ class MonaiClient:
             headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         try:
             with ExitStack() as resources:
-                files = _upload_files(upload, resources) if upload is not None else None
+                files = (
+                    _upload_files(upload, resources, self.report) if upload is not None else None
+                )
                 response = httpx.request(
                     method,
                     self.connection.endpoint.rstrip("/") + path,
@@ -210,6 +223,7 @@ class MonaiClient:
             raise MonaiClientError("MONAI Label returned invalid session information") from error
         if not isinstance(session_id, str) or not session_id:
             raise MonaiClientError("MONAI Label returned invalid session information")
+        self.report(RequestProgress("Image received by server. Session created."))
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
@@ -234,8 +248,45 @@ class MonaiClient:
         query = {"output": "all", **_image_query(path)}
         route = f"/infer/{quote(model, safe='')}?{urlencode(query)}"
         upload = Upload(None if isinstance(path, SessionInput) else path, parameters)
-        response_type, response_body = self._open(route, "POST", upload)
+        receipt = "Image session ready. " if isinstance(path, SessionInput) else ""
+        self.report(RequestProgress(f"{receipt}Waiting for {model} inference response..."))
+        with self._endpoint_monitor():
+            response_type, response_body = self._open(route, "POST", upload)
+        self.report(RequestProgress("Inference response received. Reading segmentation..."))
         return _decode_result(response_type, response_body)
+
+    @contextmanager
+    def _endpoint_monitor(self) -> Iterator[None]:
+        """Probe only endpoint reachability; never infer worker progress or job exit."""
+        stopped = threading.Event()
+        delivery = threading.Lock()
+
+        def probe() -> None:
+            connection = replace(
+                self.connection,
+                timeout_seconds=min(PROBE_TIMEOUT_SECONDS, self.connection.timeout_seconds),
+            )
+            client = MonaiClient(connection)
+            while not stopped.wait(PROBE_INTERVAL_SECONDS):
+                try:
+                    client.info()
+                    update = RequestProgress("Endpoint responded", endpoint_reachable=True)
+                except MonaiClientError:
+                    update = RequestProgress(
+                        "Endpoint check failed. Inference outcome is unknown",
+                        endpoint_reachable=False,
+                    )
+                with delivery:
+                    if not stopped.is_set():
+                        self.report(update)
+
+        if self.report is not ignore_progress:
+            threading.Thread(target=probe, name="monai-endpoint-check", daemon=True).start()
+        try:
+            yield
+        finally:
+            with delivery:
+                stopped.set()
 
 
 def _http_error_message(status: int, body: bytes) -> str:
