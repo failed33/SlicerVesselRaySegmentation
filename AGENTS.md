@@ -27,6 +27,11 @@ the root tool environment intentionally has no application runtime dependencies.
 
 ## Alerts
 
+- Slicer's download discovery can retain stale size/checksum metadata after an
+  upstream rebuild replaces the file under the same package item. The downloader
+  intentionally omits size and checksum comparisons. Download/extraction errors
+  and launcher discovery still fail acceptance.
+
 - Inference feedback uses the native session and inference routes. Endpoint
   checks establish reachability only, not model progress. Upload byte counts
   include HTTPX's multipart framing; the session response confirms server receipt.

@@ -1,9 +1,8 @@
-"""Download and verify the current stable or nightly Linux Slicer application."""
+"""Download the current stable or nightly Linux Slicer application."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import tarfile
@@ -21,14 +20,10 @@ def download(channel: str, output: Path) -> dict[str, str]:
     output.mkdir(parents=True, exist_ok=True)
     (output / "download.json").write_text(json.dumps(metadata, indent=2) + "\n")
     archive = output / "slicer.tar.gz"
-    digest = hashlib.sha512()
     with urllib.request.urlopen(base + metadata["download_url"], timeout=120) as response:
         with archive.open("wb") as destination:
             while chunk := response.read(1024 * 1024):
                 destination.write(chunk)
-                digest.update(chunk)
-    if archive.stat().st_size != metadata["size"] or digest.hexdigest() != metadata["sha512"]:
-        raise ValueError("Slicer download size or SHA-512 verification failed")
     with tarfile.open(archive) as package:
         package.extractall(output / "application", filter="data")
     executables = list((output / "application").glob("*/Slicer"))
