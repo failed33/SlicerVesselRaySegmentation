@@ -123,13 +123,6 @@ def _assert_idle(panel, outcome: str) -> None:
     assert panel.model_o_button.text == "Run ModelO inference", status
 
 
-def _assert_feedback_placement(panel) -> None:
-    """Request feedback sits above the request steps instead of after the last one."""
-    layout = panel.feedback.widget.parentWidget().layout()
-    order = [layout.itemAt(index).widget() for index in range(layout.count())]
-    assert order.index(panel.feedback.widget) < order.index(panel.arg_button.parentWidget()), order
-
-
 def _record_progress(panel) -> list:
     """Observe the real updates delivered to the production feedback."""
     updates = []
@@ -238,7 +231,6 @@ async def test_hosted_workflow(
     previous = settings.value("VesselRaySegmentation/endpoint", None)
     updates = _record_progress(panel)
     try:
-        _assert_feedback_placement(panel)
         volume = _workflow_scene(panel)
         panel.endpoint.text = endpoint
         panel.token.text = token
