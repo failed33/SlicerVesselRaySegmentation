@@ -17,6 +17,7 @@ from .client import (
     MonaiClientError,
 )
 from .images import IMAGE_SUFFIXES, VolumeSnapshot
+from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress
 from .sessions import VolumeSession
 
 _PROVENANCE_FIELDS = (
@@ -78,13 +79,20 @@ def _read_result(
     return InferenceResult(mask, request, response.metadata)
 
 
-def run_inference(request: InferenceRequest) -> InferenceResult:
+def run_inference(
+    request: InferenceRequest, report: ReportProgress = ignore_progress
+) -> InferenceResult:
     """Perform one native Label request without touching the live MRML scene."""
-    client = MonaiClient(request.connection)
-    model = client.models().get(request.model)
-    if model is None or model.input_profile != request.input_profile:
-        raise MonaiClientError("Model input requirements changed; refresh models before inference")
-    with TemporaryDirectory(prefix="vessel-monai-") as temporary:
+    report(RequestProgress(RequestPhase.VALIDATING))
+    with (
+        MonaiClient(request.connection, report) as client,
+        TemporaryDirectory(prefix="vessel-monai-") as temporary,
+    ):
+        model = client.models().get(request.model)
+        if model is None or model.input_profile != request.input_profile:
+            raise MonaiClientError(
+                "Model input requirements changed; refresh models before inference"
+            )
         directory = Path(temporary)
         if request.session is not None:
             if (
@@ -92,10 +100,11 @@ def run_inference(request: InferenceRequest) -> InferenceResult:
                 or request.session.connection != request.connection
             ):
                 raise ValueError("MONAI image session does not match the submitted CT and endpoint")
-            with request.session.use() as (client, image):
+            with request.session.use(client) as image:
                 response = client.infer(image, request.model, request.parameters)
         else:
             image = directory / "ct.nrrd"
+            report(RequestProgress(RequestPhase.PREPARING))
             request.snapshot.write_image(image)
             response = client.infer(image, request.model, request.parameters)
         return _read_result(request, response, directory)

@@ -1,48 +1,60 @@
-"""The endpoint, ARG, cleanup, centerline and ModelO workflow panel."""
+"""The setup, ARG, cleanup, centerline and ModelO workflow panel."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+from typing import Any
 
 import qt
 import slicer
 
 from . import scene
 from .monai.client import ConnectionSettings
+from .monai.progress import RequestPhase, RequestProgress
 from .tasks import TaskController
+from .ui.feedback import RequestFeedback
+
+# Give Qt and the browser one display frame to paint an acknowledgement before
+# main-thread scene capture or result import blocks the event loop.
+ACKNOWLEDGE_DELAY_MS = 50
 
 
 class WorkflowPanel:
     def __init__(self, layout, logic) -> None:
         self.logic = logic
         self.tasks = TaskController()
+        # A separate controller checks the endpoint while the request controller waits.
+        self.probe = TaskController()
+        self.check_timer = qt.QTimer()
+        self.check_timer.setInterval(15000)
+        self.check_timer.connect("timeout()", self._check_endpoint)
+        self.check_generation = 0
+        self.pending = False
+        self.running_button: tuple[Any, str] | None = None
         self.models = {}
         self.arg_models = []
         self.model_o_models = []
         self.controls = []
-        self._setup_endpoint(layout)
+        self._setup(layout)
+        # Beneath the setup and above every step that sends a request.
+        self.feedback = RequestFeedback(self._discard)
+        self.feedback.notify("Configure the endpoint, then refresh its available models.")
+        layout.addWidget(self.feedback.widget)
         self._setup_arg(layout)
         self._setup_cleanup(layout)
         self._setup_centerlines(layout)
         self._setup_model_o(layout)
-        self.status = qt.QLabel("Configure the endpoint, then refresh its available models.")
-        self.status.wordWrap = True
-        layout.addWidget(self.status)
-        self.cancel_button = qt.QPushButton("Discard pending result")
-        self.cancel_button.enabled = False
-        self.cancel_button.connect("clicked()", self.tasks.cancel)
-        layout.addWidget(self.cancel_button)
         layout.addStretch(1)
         self.scene_observer = slicer.mrmlScene.AddObserver(
             slicer.vtkMRMLScene.StartCloseEvent, self._scene_closing
         )
 
     def _scene_closing(self, _caller, _event) -> None:
-        self.tasks.cancel()
+        self._discard()
         self.tasks.release_session()
         self.logic.cleanup()
-        self.status.text = "Scene closed. Any pending inference result will be discarded."
+        if self.pending:
+            self.feedback.discarding("Scene closed. The pending result will be discarded.")
 
     def _group(self, layout, title):
         group = qt.QGroupBox(title)
@@ -69,8 +81,8 @@ class WorkflowPanel:
         self.controls.append(widget)
         return widget
 
-    def _setup_endpoint(self, layout) -> None:
-        fields = self._group(layout, "1. Endpoint configuration")
+    def _setup(self, layout) -> None:
+        fields = self._group(layout, "1. Setup")
         settings = qt.QSettings()
         self.endpoint = qt.QLineEdit(str(settings.value("VesselRaySegmentation/endpoint", "")))
         self.endpoint.placeholderText = "https://your-monai-label-server"
@@ -92,10 +104,10 @@ class WorkflowPanel:
             fields, "Refresh models", self.refresh, "RefreshModelsButton"
         )
         self.controls.extend([self.endpoint, self.token, self.timeout])
+        self.volume = self._node(fields, "Input CT:", ["vtkMRMLScalarVolumeNode"])
 
     def _setup_arg(self, layout) -> None:
         fields = self._group(layout, "2. ARG inference")
-        self.volume = self._node(fields, "Input CT:", ["vtkMRMLScalarVolumeNode"])
         self.arg_model = qt.QComboBox()
         fields.addRow("ARG model:", self.arg_model)
         self.controls.append(self.arg_model)
@@ -127,36 +139,22 @@ class WorkflowPanel:
         self.cleaned_segment.setMRMLScene(slicer.mrmlScene)
         self.cleaned_segment.noneEnabled = True
         fields.addRow("Cleaned vessel segment:", self.cleaned_segment)
-        self._button(fields, "Open Segment Editor for trimming", self.open_editor, "TrimARGButton")
         self.controls.extend(
             [self.arg_segment, self.cleaned_segment, self.minimum_mass, self.component_count]
         )
 
     def _setup_centerlines(self, layout) -> None:
-        fields = self._group(layout, "4. Centerline generation and editing")
+        fields = self._group(layout, "4. Centerline generation")
         self._button(
             fields, "Generate VMTK network curves", self.extract, "GenerateCenterlinesButton"
         )
-        self._button(
-            fields, "Open Extract Centerline", self.open_extraction, "OpenCenterlinesButton"
-        )
-        self.create_curve_button = self._button(
-            fields, "Create centerline curve", self.create_curve, "CreateCenterlineButton"
-        )
+
+    def _setup_model_o(self, layout) -> None:
+        fields = self._group(layout, "5. ModelO inference")
         self.centerline = self._node(
             fields, "Edited centerlines:", ["vtkMRMLMarkupsCurveNode", "vtkMRMLMarkupsLineNode"]
         )
         self.centerline.toolTip = "Select the root curve to include all nested branch curves."
-        self._button(fields, "Open Markups for editing", self.open_markups, "EditCenterlinesButton")
-        note = qt.QLabel(
-            "Network curves are approximate. Inspect coverage and edit the curves before ModelO. "
-            "Automatic extraction requires SlicerVMTK; manually placed curves work on both hosts."
-        )
-        note.wordWrap = True
-        fields.addRow(note)
-
-    def _setup_model_o(self, layout) -> None:
-        fields = self._group(layout, "5. ModelO inference")
         self.model_o_model = qt.QComboBox()
         fields.addRow("ModelO model:", self.model_o_model)
         self.controls.append(self.model_o_model)
@@ -169,24 +167,76 @@ class WorkflowPanel:
             str(self.endpoint.text).strip(), float(self.timeout.value), str(self.token.text)
         )
 
-    def _busy(self, active: bool, text: str) -> None:
+    def _begin(self, text: str, button, running: str) -> None:
+        """Lock the workflow until the request settles, including after a discard."""
+        self.pending = True
         for control in self.controls:
-            control.enabled = not active
-        self.cancel_button.enabled = active
-        self.status.text = text
+            control.enabled = False
+        self.running_button = (button, button.text)
+        button.text = running
+        self.feedback.begin(text)
+
+    def _end(self, text: str) -> None:
+        self._stop_checks()
+        self.pending = False
+        for control in self.controls:
+            control.enabled = True
+        if self.running_button is not None:
+            button, label = self.running_button
+            button.text = label
+            self.running_button = None
+        self.feedback.finish(text)
+
+    def _progress(self, update: RequestProgress) -> None:
+        if update.phase is RequestPhase.WAITING:
+            if not self.check_timer.active:
+                self.check_timer.start()
+        else:
+            self._stop_checks()
+        self.feedback.show(update)
+
+    def _stop_checks(self) -> None:
+        self.check_generation += 1
+        self.check_timer.stop()
+        self.probe.cancel()
+
+    def _discard(self) -> None:
+        self._stop_checks()
+        self.tasks.cancel()
+
+    def _check_endpoint(self) -> None:
+        if (
+            not self.pending
+            or not self.check_timer.active
+            or self.probe.busy
+            or self.probe.disposed
+        ):
+            return  # The previous check has not settled; skip this interval.
+        generation = self.check_generation
+        self.probe.check_endpoint(
+            self.connection(),
+            lambda _info: self._endpoint_checked(generation, True),
+            lambda _error: self._endpoint_checked(generation, False),
+        )
+
+    def _endpoint_checked(self, generation: int, reachable: bool) -> None:
+        if self.pending and self.check_timer.active and generation == self.check_generation:
+            self.feedback.checked(reachable)
 
     def failed(self, error) -> None:
-        self._busy(False, str(error))
+        self._end(str(error))
 
     def refresh(self) -> None:
+        if self.pending:
+            return
         try:
             connection = self.connection()
-            if sys.platform != "emscripten":
+            if not self.tasks.browser:
                 from slicer.packaging import load_requirements, pip_ensure
 
                 requirements = Path(__file__).parent / "Resources/requirements.txt"
                 pip_ensure(load_requirements(requirements), requester="Vessel Ray Segmentation")
-            self._busy(True, "Discovering endpoint models...")
+            self._begin("Checking endpoint models", self.refresh_button, "Refreshing models...")
             self.tasks.discover(connection, self._models_ready, self.failed)
         except Exception as error:
             self.failed(error)
@@ -202,15 +252,26 @@ class WorkflowPanel:
             for model in available:
                 combo.addItem(f"{model.title} [{model.name}]")
         unsupported = len(models) - len(self.arg_models) - len(self.model_o_models)
-        self._busy(
-            False,
+        self._end(
             f"Endpoint ready. {len(self.arg_models)} image and "
             f"{len(self.model_o_models)} centerline models. {unsupported} unsupported profiles.",
         )
         qt.QSettings().setValue("VesselRaySegmentation/endpoint", str(self.endpoint.text).strip())
 
-    def _run(self, models, combo) -> None:
+    def _run(self, models, combo, button, running: str) -> None:
+        if self.pending or self.tasks.disposed:
+            return
+        self.tasks.cancelled = False
+        self._begin("Preparing input", button, running)
+        qt.QTimer.singleShot(ACKNOWLEDGE_DELAY_MS, lambda: self._submit(models, combo))
+
+    def _submit(self, models, combo) -> None:
+        if self.tasks.disposed:
+            return
         try:
+            if self.tasks.cancelled:
+                self._end("Request discarded before submission.")
+                return
             if combo.currentIndex < 0 or combo.currentIndex >= len(models):
                 raise ValueError("Refresh the endpoint and select an available model")
             request = self.logic.request(
@@ -219,22 +280,36 @@ class WorkflowPanel:
                 self.connection(),
                 self.centerline.currentNode(),
             )
-            self._busy(True, f"Running {request.model}. The CT upload is shared between requests.")
-            self.tasks.infer(request, self._inference_ready, self.failed)
+            self.tasks.infer(request, self._inference_ready, self.failed, self._progress)
         except Exception as error:
             self.failed(error)
 
     def run_arg(self) -> None:
-        self._run(self.arg_models, self.arg_model)
+        self._run(self.arg_models, self.arg_model, self.arg_button, "Running ARG inference...")
 
     def run_model_o(self) -> None:
-        self._run(self.model_o_models, self.model_o_model)
+        self._run(
+            self.model_o_models,
+            self.model_o_model,
+            self.model_o_button,
+            "Running ModelO inference...",
+        )
 
     def _inference_ready(self, result) -> None:
+        self._stop_checks()
+        self.feedback.step("Importing result")
+        qt.QTimer.singleShot(ACKNOWLEDGE_DELAY_MS, lambda: self._import_result(result))
+
+    def _import_result(self, result) -> None:
+        if self.tasks.disposed:
+            return
         try:
+            if self.tasks.cancelled:
+                self._end("Result discarded before import.")
+                return
             if not scene.source_is_unchanged(result.request.snapshot):
                 raise ValueError(
-                    "The submitted CT changed or was removed. Result discarded; run inference again."
+                    "The submitted volume changed or was removed. Result discarded; run again."
                 )
             segmentation = self.logic.import_result(result)
             if result.request.input_profile == "image":
@@ -242,7 +317,7 @@ class WorkflowPanel:
                 self.arg_segment.setCurrentSegmentID(
                     segmentation.GetSegmentation().GetNthSegmentID(0)
                 )
-            self._busy(False, f"{result.request.model} complete. Created {segmentation.GetName()}.")
+            self._end(f"Finished in {self.feedback.elapsed()}. Created {segmentation.GetName()}.")
         except Exception as error:
             self.failed(error)
 
@@ -256,19 +331,10 @@ class WorkflowPanel:
             )
             self.cleaned_segment.setCurrentNode(output)
             self.cleaned_segment.setCurrentSegmentID(output.GetSegmentation().GetNthSegmentID(0))
-            self.status.text = (
+            self.feedback.notify(
                 f"Kept {summary['selected_components']} of {summary['source_components']} "
-            )
-            self.status.text += f"components, {summary['selected_volume_mm3']:.1f} mm³. Trim this copy in Segment Editor."
-        except Exception as error:
-            self.failed(error)
-
-    def open_editor(self) -> None:
-        try:
-            scene.open_segment_editor(
-                self.cleaned_segment.currentNode(),
-                self.volume.currentNode(),
-                self.cleaned_segment.currentSegmentID(),
+                f"components, {summary['selected_volume_mm3']:.1f} mm³. "
+                "Trim this copy in Segment Editor."
             )
         except Exception as error:
             self.failed(error)
@@ -279,41 +345,20 @@ class WorkflowPanel:
                 self.cleaned_segment.currentNode(), self.cleaned_segment.currentSegmentID()
             )
             self.centerline.setCurrentNode(output)
-            self.status.text = f"Created {summary['curve_count']} network curves. "
-            self.status.text += f"{summary['failed_components']} failed and {summary['empty_components']} empty components. Inspect all branches."
+            self.feedback.notify(
+                f"Created {summary['curve_count']} network curves. "
+                f"{summary['failed_components']} failed and "
+                f"{summary['empty_components']} empty components. Inspect all branches."
+            )
         except Exception as error:
             self.failed(error)
 
-    def open_extraction(self) -> None:
-        if slicer.app.moduleManager().module("ExtractCenterline") is None:
-            self.failed(
-                RuntimeError(
-                    "Install SlicerVMTK for automatic centerline extraction. "
-                    "You can also place native Markups curves manually."
-                )
-            )
-            return
-        slicer.util.selectModule("ExtractCenterline")
-
-    def create_curve(self) -> None:
-        curve = self.logic.create_centerline()
-        self.centerline.setCurrentNode(curve)
-        self.status.text = "Created an empty curve. Place and edit at least two points in Markups."
-
-    @staticmethod
-    def open_markups() -> None:
-        import sys
-
-        if sys.platform == "emscripten":
-            from .browser import open_panel
-
-            open_panel("Markups")
-        else:
-            slicer.util.selectModule("Markups")
-
     def cleanup(self) -> None:
         slicer.mrmlScene.RemoveObserver(self.scene_observer)
+        self._stop_checks()
+        self.feedback.stop()
         self.tasks.dispose()
+        self.probe.dispose()
         self.logic.cleanup()
         self.token.text = ""
         if self.tasks.browser:

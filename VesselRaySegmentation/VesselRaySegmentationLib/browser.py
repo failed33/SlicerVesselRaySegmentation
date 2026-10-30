@@ -9,7 +9,14 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import quote
 
-from .monai.client import ModelDescriptor, MonaiClientError, Upload, _decode_result
+from .monai.client import (
+    ModelDescriptor,
+    MonaiClientError,
+    Upload,
+    _decode_info,
+    _decode_result,
+)
+from .monai.progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress
 from .monai.submission import _read_result
 
 
@@ -65,6 +72,7 @@ class BrowserClient:
 
     def __init__(self, connection) -> None:
         self.connection = connection
+        self.report: ReportProgress = ignore_progress
 
     async def request(self, path: str, method: str = "GET", upload=None) -> tuple[str, bytes]:
         from js import AbortController
@@ -81,6 +89,8 @@ class BrowserClient:
 
         async def receive():
             response = await pyfetch(self.connection.endpoint.rstrip("/") + path, **options)
+            if upload is not None and response.ok:
+                self.report(RequestProgress(RequestPhase.RECEIVING))
             return response, await response.bytes()
 
         try:
@@ -101,15 +111,15 @@ class BrowserClient:
                 "Cannot reach MONAI Label. Check the URL, HTTPS and endpoint CORS policy."
             ) from error
 
-    async def models(self) -> dict[str, ModelDescriptor]:
+    async def info(self) -> dict[str, Any]:
         _content_type, body = await self.request("/info/")
-        try:
-            models = json.loads(body)["models"]
-            if not isinstance(models, dict):
-                raise ValueError("Invalid model map")
-            return {name: ModelDescriptor.from_info(name, value) for name, value in models.items()}
-        except (ValueError, KeyError, TypeError) as error:
-            raise MonaiClientError("MONAI Label returned invalid discovery information") from error
+        return _decode_info(body)
+
+    async def models(self) -> dict[str, ModelDescriptor]:
+        info = await self.info()
+        return {
+            name: ModelDescriptor.from_info(name, value) for name, value in info["models"].items()
+        }
 
 
 class BrowserSession:
@@ -129,6 +139,7 @@ class BrowserSession:
                 await self.client.request(
                     f"/session/{quote(self.session_id, safe='')}?update_ts=true"
                 )
+                self.client.report(RequestProgress(RequestPhase.SESSION_READY))
                 return self.session_id
             except MonaiClientError as error:
                 if error.status_code != 404:
@@ -136,7 +147,10 @@ class BrowserSession:
                 self.session_id = None
         with TemporaryDirectory(prefix="vessel-upload-") as temporary:
             path = Path(temporary) / "ct.nrrd"
+            self.client.report(RequestProgress(RequestPhase.PREPARING))
+            await asyncio.sleep(0.05)
             self.snapshot.write_image(path)
+            self.client.report(RequestProgress(RequestPhase.UPLOADING))
             _kind, body = await self.client.request(
                 "/session/", "PUT", Upload(path=path, file_field="files")
             )
@@ -148,28 +162,34 @@ class BrowserSession:
             raise MonaiClientError("MONAI Label returned invalid session information") from error
         self.session_id = session_id
         self.uncertain = False
+        self.client.report(RequestProgress(RequestPhase.SESSION_READY))
         return session_id
 
-    async def infer(self, request):
+    async def infer(self, request, report: ReportProgress = ignore_progress):
         async with self.lock:
+            self.client.report = report
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
+            report(RequestProgress(RequestPhase.VALIDATING))
             models = await self.client.models()
             model = models.get(request.model)
             if model is None or model.input_profile != request.input_profile:
                 raise MonaiClientError("Model input requirements changed; refresh the endpoint")
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
+            report(RequestProgress(RequestPhase.CHECKING_SESSION))
             session_id = await self.ensure()
             if self.closed:
                 raise MonaiClientError("MONAI image session is closed")
             try:
+                report(RequestProgress(RequestPhase.WAITING))
                 kind, body = await self.client.request(
                     f"/infer/{quote(request.model, safe='')}?output=all&session_id="
                     + quote(session_id, safe=""),
                     "POST",
                     Upload(parameters=request.parameters),
                 )
+                report(RequestProgress(RequestPhase.READING))
                 response = _decode_result(kind, body)
                 with TemporaryDirectory(prefix="vessel-result-") as temporary:
                     return _read_result(request, response, Path(temporary))

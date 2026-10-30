@@ -10,8 +10,14 @@ from dataclasses import dataclass, field
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode, urlsplit
+
+from .progress import ReportProgress, RequestPhase, RequestProgress, ignore_progress, upload_chunks
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class MonaiClientError(RuntimeError):
@@ -141,11 +147,52 @@ def _decode_result(content_type: str, body: bytes) -> InferenceResponse:
     return InferenceResponse(image, Path(filename).name, metadata)
 
 
+def _decode_info(body: bytes) -> dict[str, Any]:
+    try:
+        info = json.loads(body)
+    except ValueError as error:
+        raise MonaiClientError("MONAI Label returned invalid discovery information") from error
+    if not isinstance(info, dict) or not isinstance(info.get("models"), dict):
+        raise MonaiClientError("MONAI Label discovery response has no model map")
+    return info
+
+
 class MonaiClient:
     """Use native Label discovery, image sessions and inference routes."""
 
-    def __init__(self, connection: ConnectionSettings) -> None:
+    def __init__(
+        self, connection: ConnectionSettings, report: ReportProgress = ignore_progress
+    ) -> None:
         self.connection = connection
+        self.report = report
+        self._transport: httpx.Client | None = None
+
+    def _create_transport(self) -> httpx.Client:
+        import httpx
+
+        headers = {}
+        if self.connection.bearer_token:
+            headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
+        return httpx.Client(
+            headers=headers,
+            timeout=self.connection.timeout_seconds,
+            follow_redirects=False,
+            verify=ssl.create_default_context(),
+        )
+
+    def __enter__(self) -> MonaiClient:
+        self._transport = self._create_transport()
+        return self
+
+    def __exit__(
+        self,
+        _kind: type[BaseException] | None,
+        _error: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        if self._transport is not None:
+            self._transport.close()
+            self._transport = None
 
     def _open(
         self, path: str, method: str = "GET", upload: Upload | None = None
@@ -153,29 +200,38 @@ class MonaiClient:
         # Browser imports the route types but never loads a socket-based client.
         import httpx
 
-        headers = {}
-        if self.connection.bearer_token:
-            headers["Authorization"] = f"Bearer {self.connection.bearer_token}"
         try:
             with ExitStack() as resources:
+                transport = self._transport or resources.enter_context(self._create_transport())
                 files = _upload_files(upload, resources) if upload is not None else None
-                response = httpx.request(
-                    method,
-                    self.connection.endpoint.rstrip("/") + path,
-                    files=files,
-                    headers=headers,
-                    timeout=self.connection.timeout_seconds,
-                    follow_redirects=False,
-                    verify=ssl.create_default_context(),
+                request = transport.build_request(
+                    method, self.connection.endpoint.rstrip("/") + path, files=files
                 )
+                if upload is not None and upload.path is not None:
+                    assert isinstance(request.stream, httpx.SyncByteStream)
+                    request = transport.build_request(
+                        method,
+                        request.url,
+                        headers=request.headers,
+                        content=upload_chunks(
+                            request.stream,
+                            int(request.headers.get("Content-Length", 0)),
+                            self.report,
+                        ),
+                    )
+                response = transport.send(request, stream=True)
+                resources.callback(response.close)
+                if upload is not None:
+                    self.report(RequestProgress(RequestPhase.RECEIVING))
+                body = response.read()
             if response.status_code >= 300:
-                message = _http_error_message(response.status_code, response.content[:8192])
+                message = _http_error_message(response.status_code, body[:8192])
                 token = self.connection.bearer_token
                 raise MonaiClientError(
                     message.replace(token, "[redacted]") if token else message,
                     status_code=response.status_code,
                 )
-            return response.headers.get("Content-Type", ""), response.content
+            return response.headers.get("Content-Type", ""), body
         except httpx.TimeoutException as error:
             raise MonaiClientError("MONAI Label request timed out") from error
         except httpx.RequestError as error:
@@ -185,13 +241,7 @@ class MonaiClient:
 
     def info(self) -> dict[str, Any]:
         _content_type, body = self._open("/info/")
-        try:
-            info = json.loads(body)
-        except ValueError as exc:
-            raise MonaiClientError("MONAI Label returned invalid discovery information") from exc
-        if not isinstance(info, dict) or not isinstance(info.get("models"), dict):
-            raise MonaiClientError("MONAI Label discovery response has no model map")
-        return info
+        return _decode_info(body)
 
     def models(self) -> dict[str, ModelDescriptor]:
         """Read native model names and our explicit input-profile convention."""
@@ -210,6 +260,7 @@ class MonaiClient:
             raise MonaiClientError("MONAI Label returned invalid session information") from error
         if not isinstance(session_id, str) or not session_id:
             raise MonaiClientError("MONAI Label returned invalid session information")
+        self.report(RequestProgress(RequestPhase.SESSION_READY))
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
@@ -234,7 +285,9 @@ class MonaiClient:
         query = {"output": "all", **_image_query(path)}
         route = f"/infer/{quote(model, safe='')}?{urlencode(query)}"
         upload = Upload(None if isinstance(path, SessionInput) else path, parameters)
+        self.report(RequestProgress(RequestPhase.WAITING))
         response_type, response_body = self._open(route, "POST", upload)
+        self.report(RequestProgress(RequestPhase.READING))
         return _decode_result(response_type, response_body)
 
 

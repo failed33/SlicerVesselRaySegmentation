@@ -60,7 +60,6 @@ def test_automatic_centerlines() -> dict:
     coverage = float(np.ptp(np.concatenate([np.asarray(line)[:, 0] for line in lines])))
     if coverage < 25 or summary["failed_components"]:
         raise AssertionError(f"VMTK did not cover the straight tube: {coverage} mm, {summary}")
-    # Leave the widget test's single manually created curve for the external click check.
     hierarchy.RemoveItem(hierarchy.GetItemByDataNode(curve))
     slicer.mrmlScene.RemoveNode(segmentation)
     return {
@@ -71,14 +70,54 @@ def test_automatic_centerlines() -> dict:
     }
 
 
-async def _settled(panel) -> None:
+def _panel():
+    module = slicer.app.moduleManager().module("VesselRaySegmentation")
+    representation = module.widgetRepresentation()
+    widget = representation.self() if hasattr(representation, "self") else representation
+    return widget.workflow
+
+
+async def _pump_until(panel, ready, failure: str) -> None:
     deadline = asyncio.get_running_loop().time() + 45
-    while panel.tasks.busy:
+    while not ready():
         if asyncio.get_running_loop().time() >= deadline:
-            raise TimeoutError("Hosted workflow stalled: " + str(panel.status.text))
+            raise TimeoutError(failure + ": " + str(panel.feedback.status.text))
         if sys.platform != "emscripten":
             slicer.app.processEvents()
         await asyncio.sleep(0.01)
+
+
+async def _settled(panel) -> None:
+    await _pump_until(panel, lambda: not panel.pending, "Hosted workflow stalled")
+
+
+def _assert_idle(panel, outcome: str) -> None:
+    """Request-only feedback disappears, its timers stop and every workflow control unlocks."""
+    feedback = panel.feedback
+    status = str(feedback.status.text)
+    assert outcome in status, status
+    assert feedback.progress.isHidden() and feedback.detail.isHidden(), status
+    assert not feedback.discard_button.enabled, status
+    assert all(control.enabled for control in panel.controls), status
+    assert panel.refresh_button.text == "Refresh models", status
+    assert panel.arg_button.text == "Run ARG inference", status
+    assert panel.model_o_button.text == "Run ModelO inference", status
+
+
+async def _assert_waiting(panel) -> None:
+    """A held HTTP request keeps activity visible and reports real endpoint checks."""
+    feedback = panel.feedback
+    await _pump_until(
+        panel,
+        lambda: (
+            "Endpoint responded" in str(feedback.detail.text) and not feedback.detail.isHidden()
+        ),
+        "Held request showed no endpoint check",
+    )
+    status = str(feedback.status.text)
+    assert not feedback.progress.isHidden() and feedback.progress.maximum == 0, status
+    assert feedback.discard_button.enabled and not panel.model_o_button.enabled, status
+    assert panel.model_o_button.text == "Running ModelO inference...", status
 
 
 def _workflow_scene(panel):
@@ -112,7 +151,7 @@ def _workflow_cleanup(panel, volume):
 
     raw = panel.arg_segment.currentNode()
     if raw is None:
-        raise AssertionError("ARG result missing: " + str(panel.status.text))
+        raise AssertionError("ARG result missing: " + str(panel.feedback.status.text))
     expected = np.array(_segment_mask(raw, volume), copy=True)
     assert int(expected.sum()) == 28
     panel.prepare_cleanup()
@@ -120,7 +159,6 @@ def _workflow_cleanup(panel, volume):
     assert cleaned is not None and cleaned is not raw
     mask = np.array(_segment_mask(cleaned, volume), copy=True)
     assert int(mask.sum()) == 27
-    panel.open_editor()
     mask[1, 1, 1] = 0  # Simulate a manual edit through Slicer's native segment API.
     segment_id = cleaned.GetSegmentation().GetNthSegmentID(0)
     slicer.util.updateSegmentBinaryLabelmapFromArray(mask, cleaned, segment_id, volume)
@@ -132,8 +170,8 @@ def _workflow_cleanup(panel, volume):
 def _workflow_curve(panel):
     import vtk
 
-    panel.create_curve()
-    curve = panel.centerline.currentNode()
+    curve = panel.logic.create_centerline()
+    panel.centerline.setCurrentNode(curve)
     curve.AddControlPoint(vtk.vtkVector3d(11.0, -18.0, 2.0))
     curve.AddControlPoint(vtk.vtkVector3d(11.0, -18.0, 6.0))
     return curve
@@ -146,10 +184,7 @@ async def test_hosted_workflow(
     import qt
     import vtk
 
-    module = slicer.app.moduleManager().module("VesselRaySegmentation")
-    representation = module.widgetRepresentation()
-    widget = representation.self() if hasattr(representation, "self") else representation
-    panel = widget.workflow
+    panel = _panel()
     settings = qt.QSettings()
     previous = settings.value("VesselRaySegmentation/endpoint", None)
     try:
@@ -158,30 +193,46 @@ async def test_hosted_workflow(
         panel.token.text = token
         panel.refresh()
         await _settled(panel)
+        _assert_idle(panel, "Endpoint ready")
         assert [model.name for model in panel.arg_models] == ["arg-fixture"]
         assert [model.name for model in panel.model_o_models] == ["model-o-fixture"]
         panel.run_arg()
+        # The click is acknowledged before the deferred scene capture runs.
+        assert panel.pending and not panel.feedback.progress.isHidden()
+        assert panel.arg_button.text == "Running ARG inference..."
+        assert not panel.arg_button.enabled and panel.feedback.discard_button.enabled
         await _settled(panel)
+        _assert_idle(panel, "Finished in")
         raw, cleaned = _workflow_cleanup(panel, volume)
         curve = _workflow_curve(panel)
         panel.run_model_o()
         await _settled(panel)
+        _assert_idle(panel, "Finished in")
         first = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")[-1]
-        assert first not in (raw, cleaned), str(panel.status.text)
+        assert first not in (raw, cleaned), str(panel.feedback.status.text)
         assert int(_segment_mask(first, volume).sum()) == 3
         curve.SetNthControlPointPositionWorld(1, vtk.vtkVector3d(11.0, -18.0, 4.0))
         panel.run_model_o()
         await _settled(panel)
         second = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")[-1]
-        assert second is not first, str(panel.status.text)
+        assert second is not first, str(panel.feedback.status.text)
         assert int(_segment_mask(second, volume).sum()) == 2
+        _assert_idle(panel, "Finished in")
+        # Check sooner than the production interval so the held request sees a check.
+        panel.check_timer.setInterval(200)
         panel.run_model_o()
+        # Pump Qt so the deferred submission is sent, then check the held request's feedback.
+        await _assert_waiting(panel)
         # The harness observes the real server's start receipt, rather than guessing a delay.
         await wait_for_request()
         closed_at = time.time()
         slicer.mrmlScene.Clear(0)
+        feedback = panel.feedback
+        assert panel.pending and not feedback.progress.isHidden(), str(feedback.status.text)
+        assert "Scene closed" in str(feedback.status.text) and not feedback.discard_button.enabled
         await release_request()
         await _settled(panel)
+        _assert_idle(panel, "Result discarded")
         assert slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLSegmentationNode") == 0
         assert panel.logic.snapshot is None
         return {
@@ -189,12 +240,14 @@ async def test_hosted_workflow(
             "arg_voxels": 28,
             "cleaned_voxels": 26,
             "model_o_voxels": [3, 2],
+            "request_feedback": "passed",
             "scene_close_discards_result": True,
             "centerline_mode": "native editable Markups",
             "trained_model": False,
             "scene_closed_at": closed_at,
         }
     finally:
+        panel.check_timer.setInterval(15000)
         panel.logic.cleanup()
         panel.tasks.release_session()
         panel.token.text = ""

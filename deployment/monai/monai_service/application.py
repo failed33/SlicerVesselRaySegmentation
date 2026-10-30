@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Lock
@@ -26,6 +28,8 @@ from monai_service.contracts import (
     ResolvedArtifact,
     StreamingWorkflow,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _with_provenance(
@@ -155,8 +159,13 @@ class InferenceService(Generic[Parameters]):
         try:
             with tempfile.TemporaryDirectory(prefix="inference-", dir=self.work_dir) as temporary:
                 workspace = Path(temporary).resolve()
+                started = time.monotonic()
+                logger.info("Request %s: inference accepted", workspace.name)
                 result = self._run_workflow(request, artifact, workspace)
                 output = self._transfer_result(result.path, workspace)
+                logger.info(
+                    "Request %s: result ready in %.1f s", workspace.name, time.monotonic() - started
+                )
             return InferenceResult(output, result.metadata)
         except BaseException:
             if output is not None:
@@ -174,7 +183,9 @@ class InferenceService(Generic[Parameters]):
             result = self._infer_direct(request, artifact, workspace)
             return _with_provenance(result, artifact, ExecutionResult("direct", "python"))
         invocation = workflow.prepare(request, artifact, workspace)
+        logger.info("Request %s: starting inference worker", workspace.name)
         execution = self.deployment.executor.run(invocation)
+        logger.info("Request %s: worker finished; reading result", workspace.name)
         result = workflow.read_result(request, workspace)
         return _with_provenance(result, artifact, execution)
 

@@ -119,9 +119,11 @@ json.dumps(test_installed_module(sysconfig.get_paths()["purelib"] + "/slicer_hom
   report.slicerweb_revision = info.slicerweb.commit;
   report.browser = browser.version();
   await page.evaluate(() => window.slicerWeb.pyodide.runPython('slicer.util.selectModule("VesselRaySegmentation")'));
-  await page.getByRole("button", { name: "Create centerline curve", exact: true }).click();
-  await page.waitForFunction(() => window.slicerWeb.pyodide.runPython(
-    'slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLMarkupsCurveNode")') === 2);
+  // Before model discovery, a real ARG click reaches request validation and unlocks again.
+  const argButton = page.getByRole("button", { name: "Run ARG inference", exact: true });
+  await argButton.click();
+  await page.getByText("Refresh the endpoint and select an available model").waitFor();
+  assert(await argButton.isEnabled());
   report.browser_button_click = "passed";
   assert.equal(await page.locator('input[type="password"]').count(), 1,
     "Bearer token must be masked by the browser input");
